@@ -33,6 +33,13 @@ namespace Bismuth
         private static bool _bpmColorOpen = false;
         private static bool _attemptsOpen = false;
         private static bool _comboColorOpen = false;
+        private static bool _comboLabelOpen = false;
+        private static bool _comboCountOpen = false;
+        private static bool _comboAnimationsOpen = false;
+        private static bool _comboLabelShadowOpen = false;
+        private static bool _comboLabelShadowColorOpen = false;
+        private static bool _comboCountShadowOpen = false;
+        private static bool _comboCountShadowColorOpen = false;
         private static bool _keyViewerOpen   = false;
         private static bool _keyLimiterOpen  = false;
         private static bool _chatterBlockerOpen = false;

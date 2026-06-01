@@ -133,9 +133,19 @@ namespace Bismuth
         public float ComboPulseDuration = 0.2f;
         public float ComboPulseOffsetY = 8f;
         public float ComboPulseScale   = 0.2f;
-        public float ComboLabelY = 60f;
+        public float ComboLabelY = 65f;
         public float ComboLabelSize = 1.0f;
-        public float ComboShadowSize = 4f;
+        public float ComboCountSize = 1.0f;
+        // Count (value) shadow.
+        public float ComboShadowOffsetX = 4f;
+        public float ComboShadowOffsetY = -4f;
+        public KvColor ComboShadowColor = new KvColor { R = 0f, G = 0f, B = 0f, A = 0.5f };
+
+        // Label shadow — independent. Defaults match the previously-derived proportional size
+        // (sqrt(30/80) ≈ 0.612 × 4 ≈ 2.45 → rounded to 2.5).
+        public float ComboLabelShadowOffsetX = 2.5f;
+        public float ComboLabelShadowOffsetY = -2.5f;
+        public KvColor ComboLabelShadowColor = new KvColor { R = 0f, G = 0f, B = 0f, A = 0.5f };
         public bool ComboCountAuto = false;
 
         public bool KeyLimiterEnabled = true;
@@ -145,6 +155,7 @@ namespace Bismuth
         public bool ChatterBlockerEnabled = false;
         public int  ChatterThresholdMs = 50;
 
+        public bool HideUiEnabled = true;
         public bool HideAllUI = false;
         public bool HideHitmeter = false;
         public bool HideAutoplayText = false;
@@ -155,8 +166,24 @@ namespace Bismuth
         public bool HideLevelName = false;
         public bool HideBetaBuild = false;
 
-        public float LevelNameScale = 0.5f;
-        public float LevelNameY = 45f;
+        // Effective Hide* — each Hide flag is gated by the section's master toggle so consumers
+        // never need to repeat the && HideUiEnabled check.
+        [System.Xml.Serialization.XmlIgnore] public bool ActiveHideAllUI             => HideUiEnabled && HideAllUI;
+        [System.Xml.Serialization.XmlIgnore] public bool ActiveHideHitmeter          => HideUiEnabled && HideHitmeter;
+        [System.Xml.Serialization.XmlIgnore] public bool ActiveHideAutoplayText      => HideUiEnabled && HideAutoplayText;
+        [System.Xml.Serialization.XmlIgnore] public bool ActiveHideAutoplayIcon      => HideUiEnabled && HideAutoplayIcon;
+        [System.Xml.Serialization.XmlIgnore] public bool ActiveHideNoFail            => HideUiEnabled && HideNoFail;
+        [System.Xml.Serialization.XmlIgnore] public bool ActiveHideDifficulty        => HideUiEnabled && HideDifficulty;
+        [System.Xml.Serialization.XmlIgnore] public bool ActiveHidePerfectJudgements => HideUiEnabled && HidePerfectJudgements;
+        [System.Xml.Serialization.XmlIgnore] public bool ActiveHideLevelName         => HideUiEnabled && HideLevelName;
+        [System.Xml.Serialization.XmlIgnore] public bool ActiveHideBetaBuild         => HideUiEnabled && HideBetaBuild;
+
+        public bool  TweaksEnabled   = true;
+        public float LevelNameScale  = 0.5f;
+        public float LevelNameY      = 40f;
+
+        [System.Xml.Serialization.XmlIgnore] public float ActiveLevelNameScale => TweaksEnabled ? LevelNameScale : 1f;
+        [System.Xml.Serialization.XmlIgnore] public float ActiveLevelNameY     => TweaksEnabled ? LevelNameY     : 0f;
 
         public OverlayPosition ProgressPosition  = OverlayPosition.Left;
         public OverlayPosition AccPosition       = OverlayPosition.Left;

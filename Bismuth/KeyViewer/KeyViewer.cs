@@ -103,7 +103,7 @@ namespace Bismuth
         private readonly Dictionary<string, int> _lastTotalPerPreset = new Dictionary<string, int>();
 
         private static bool AnyViewerOn(Settings s) =>
-            !s.HideAllUI && s.ShowKeyViewer &&
+            !s.ActiveHideAllUI && s.ShowKeyViewer &&
             ((s.ShowHandViewer && s.Hand != null) || (s.ShowFootViewer && s.Foot != null));
 
         private static bool NeedsPersist(Settings s) =>
@@ -176,6 +176,34 @@ namespace Bismuth
             ClearLayout();
             BuildLayout();
             _canvas.gameObject.SetActive(AnyViewerOn(settings));
+        }
+
+        // Move a cell's persisted press count from its old key to the new one when the user
+        // rebinds a KV cell. Called by SettingsGui before the rebuild so the freshly-built
+        // cell picks up the carried-over count from _counts. Old key is only forgotten if no
+        // other cell in the same preset still uses it (otherwise that other cell would zero
+        // out on the next rebuild).
+        internal void TransferKeyCount(KeyViewerPreset preset, KeyCode oldKey, KeyCode newKey)
+        {
+            if (preset == null || oldKey == newKey) return;
+            string pn = preset.Name ?? "";
+            if (!_counts.TryGetValue(pn, out var dict)) return;
+            if (!dict.TryGetValue(oldKey, out int count) || count <= 0) return;
+
+            dict.TryGetValue(newKey, out int existing);
+            dict[newKey] = existing + count;
+
+            bool oldStillUsed = false;
+            if (preset.Rows != null)
+                foreach (var row in preset.Rows)
+                {
+                    if (row?.Cells == null) continue;
+                    foreach (var c in row.Cells)
+                        if (c?.Token != null && TryParseKey(c.Token, out var kc) && kc == oldKey)
+                        { oldStillUsed = true; break; }
+                    if (oldStillUsed) break;
+                }
+            if (!oldStillUsed) dict.Remove(oldKey);
         }
 
         internal void ResetCounts()

@@ -307,7 +307,7 @@ namespace Bismuth
 
                 if (!_kvRowOpen[idx]) { GUILayout.Space(4f); continue; }
 
-                DrawCellGrid(row, idx, ref changed);
+                DrawCellGrid(row, idx, preset, ref changed);
 
                 SliderRow("Height", out float rowH, row.Height, 24f, 128f, 60f, "F0", "px");
                 float newRowH = Mathf.Round(rowH);
@@ -404,7 +404,7 @@ namespace Bismuth
         }
 
         // Row's button grid + listen + per-cell edit panel.
-        private static void DrawCellGrid(KeyViewerRow row, int rowIdx, ref bool changed)
+        private static void DrawCellGrid(KeyViewerRow row, int rowIdx, KeyViewerPreset preset, ref bool changed)
         {
             // Row of cell buttons
             GUILayout.BeginHorizontal();
@@ -497,7 +497,14 @@ namespace Bismuth
                         KeyCode pressed = ListenForKey();
                         if (pressed != KeyCode.None && pressed != KeyCode.Escape)
                         {
+                            // Swap the token first so TransferKeyCount's "is oldKey still in use"
+                            // scan sees the new binding; otherwise it spots this very cell still
+                            // holding the old token and leaves the old count in _counts, which
+                            // then double-counts on the next rebind back.
+                            bool hadOld = KeyViewer.TryParseKey(cell.Token, out var oldKey);
                             cell.Token = TokenFromKeyCode(pressed);
+                            if (hadOld && KeyViewer.Instance != null)
+                                KeyViewer.Instance.TransferKeyCount(preset, oldKey, pressed);
                             _kvCellListenRow = -1; _kvCellListenCell = -1;
                             changed = true;
                             _needsKvRebuild = true;
