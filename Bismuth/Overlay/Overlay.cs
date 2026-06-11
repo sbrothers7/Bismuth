@@ -1,3 +1,4 @@
+using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
@@ -54,47 +55,47 @@ namespace Bismuth
         private readonly int[] _judgementCounts = new int[12];
 
         private GameObject progressRow;
-        private Text progressLabel;
-        private Text progressValue;
+        private TextMeshProUGUI progressLabel;
+        private TextMeshProUGUI progressValue;
         private GameObject attemptsRow;
-        private Text attemptsLabel;
-        private Text attemptsValue;
+        private TextMeshProUGUI attemptsLabel;
+        private TextMeshProUGUI attemptsValue;
         private GameObject attemptsFullRow;
-        private Text attemptsFullLabel;
-        private Text attemptsFullValue;
+        private TextMeshProUGUI attemptsFullLabel;
+        private TextMeshProUGUI attemptsFullValue;
         private GameObject accRow;
-        private Text accLabel;
-        private Text accValue;
+        private TextMeshProUGUI accLabel;
+        private TextMeshProUGUI accValue;
         private GameObject xaccRow;
-        private Text xaccLabel;
-        private Text xaccValue;
+        private TextMeshProUGUI xaccLabel;
+        private TextMeshProUGUI xaccValue;
         private GameObject bpmRow;
-        private Text bpmLabel;
-        private Text bpmValue;
+        private TextMeshProUGUI bpmLabel;
+        private TextMeshProUGUI bpmValue;
         private GameObject tileBpmRow;
-        private Text tileBpmLabel;
-        private Text tileBpmValue;
+        private TextMeshProUGUI tileBpmLabel;
+        private TextMeshProUGUI tileBpmValue;
         private GameObject timingScaleRow;
-        private Text timingScaleLabel;
-        private Text timingScaleValue;
+        private TextMeshProUGUI timingScaleLabel;
+        private TextMeshProUGUI timingScaleValue;
         private GameObject judgementsRow;
-        private Text[] judgementTexts;
+        private TextMeshProUGUI[] judgementTexts;
         private RectTransform comboDisplayContainer;
         private RectTransform _comboLabelWrapper;
-        private Text comboDisplayLabel;
-        private Text comboDisplayValue;
-        private Shadow _comboValueShadow;
-        private Shadow _comboLabelShadow;
+        private TextMeshProUGUI comboDisplayLabel;
+        private TextMeshProUGUI comboDisplayValue;
+        private TmpShadow _comboValueShadow;
+        private TmpShadow _comboLabelShadow;
         private GameObject fpsContainer;
-        private Text fpsText;
+        private TextMeshProUGUI fpsText;
 
         private float _fpsAccum;
         private int _fpsFrames;
         private const float FpsInterval = 0.2f;
 
         private const float ShadowBaseOffset     = 2f;
-        private const int RowBaseFontSize        = 30;
-        private const int ComboLabelBaseFontSize = 27;
+        private const int RowBaseFontSize        = 27;
+        private const int ComboLabelBaseFontSize = 24;
         private const int ComboValueBaseFontSize = 80;
         private int? _levelNameOrigFontSize;
 
@@ -111,6 +112,16 @@ namespace Bismuth
         private float _lastTileBpmTime = -1f;
         private float _lastTileBpm;
         private Vector2? _levelNameOrigPos;
+        // txtLevelName is legacy uGUI Text, so this is the bundled legacy Font of the
+        // selected overlay entry (set by MainClass), not a TMP asset. The original game
+        // font is cached per scene so the toggle can restore it.
+        private Font _levelNameFont;
+        private Font _levelNameOrigFont;
+        // Bismuth drop shadow on txtLevelName (legacy Shadow — that text never went TMP),
+        // plus the game's own enabled Shadow/Outline effects, suspended while ours shows.
+        // All per-scene, like the font cache above.
+        private Shadow _levelNameShadow;
+        private Shadow[] _levelNameGameEffects;
 
         // Cached values to avoid per-frame string allocation when display hasn't changed.
         private float _lastProgressT = -1f;
@@ -148,6 +159,9 @@ namespace Bismuth
             RDC.noHud = false;
             _levelNameOrigPos = null;
             _levelNameOrigFontSize = null;
+            _levelNameOrigFont = null;
+            _levelNameShadow = null;
+            _levelNameGameEffects = null;
         }
 
         private void OnActiveSceneChanged(Scene _, Scene __)
@@ -193,6 +207,11 @@ namespace Bismuth
             }
         }
 
+        private const string DefaultStatSeparator = " | ";
+
+        internal static string StatSeparator(Settings s) =>
+            string.IsNullOrEmpty(s.StatSeparator) ? DefaultStatSeparator : s.StatSeparator;
+
         private static string TrimZeros(string s)
         {
             int dot = s.IndexOf('.');
@@ -211,9 +230,7 @@ namespace Bismuth
 
         private static void AddShadow(GameObject go)
         {
-            var shadow = go.AddComponent<Shadow>();
-            shadow.effectColor = new Color(0f, 0f, 0f, 0.75f);
-            shadow.effectDistance = new Vector2(2f, -2f);
+            TmpShadow.Attach(go, new Color(0f, 0f, 0f, 0.5f), new Vector2(2f, -2f));
         }
     }
 }

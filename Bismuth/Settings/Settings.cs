@@ -98,7 +98,21 @@ namespace Bismuth
         public float JudgementsGap = 12f;
         public float Scale = 1.0f;
         public int Precision = 2;
-        public string FontName = "Maplestory Bold";
+        // Between a stat row's label and value; empty falls back to " | ".
+        public string StatSeparator = " | ";
+        // Per-part weight overrides ("" = match the overlay font's weight). Only
+        // honored when the overlay font's family actually has the named weight.
+        public string StatLabelWeight = "Medium";
+        public string StatValueWeight = "";
+        public string ComboLabelWeight = "";
+        public string ComboValueWeight = FontLoader.WeightHeaviest;
+        // Repaint the game's song title/artist text with the overlay font.
+        public bool LevelNameUseOverlayFont = true;
+        // Master switch + color for every overlay text shadow. Combo label/count keep
+        // their dedicated shadow colors but obey the switch.
+        public bool OverlayShadowEnabled = true;
+        public KvColor OverlayShadowColor = new KvColor { R = 0f, G = 0f, B = 0f, A = 0.5f };
+        public string FontName = "Pretendard-Regular";
         public bool ShowOverlay = true;
         public bool ShowFps = false;
         public bool OptSpectrumThrottle = true;
@@ -191,8 +205,8 @@ namespace Bismuth
         public float TimingScaleSize = 0.75f;
         public float AttemptsX = 0.77f;
         public float AttemptsY = 0.05f;
-        public float LevelNameScale = 0.5f;
-        public float LevelNameY     = 40f;
+        public float LevelNameScale = 0.3f;
+        public float LevelNameY     = 30f;
 
         // Normalized screen anchors for the draggable elements (Locations tab). Defaults
         // reproduce the historical fixed placements at the 1920×1080 reference resolution
@@ -229,7 +243,7 @@ namespace Bismuth
 
         // UGUI settings panel preferences (new shell — see UI/).
         public float UiScale = 1.0f;
-        public string UiFontName = "";
+        public string UiFontName = "Pretendard-Regular";
         public bool UiAccentCustom = false;
         public float UiAccentR = 0.604f;
         public float UiAccentG = 0.706f;

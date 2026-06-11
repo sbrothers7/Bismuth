@@ -1,7 +1,7 @@
 # ADOFAI Game Flow — IL Inspection Notes
 
-Source: `monodis Assembly-CSharp.dll` → `/tmp/adofai_il.txt`  
-Game version: v2.9.8 (Mac)
+Source: `ikdasm Assembly-CSharp.dll > /tmp/acs.il` (monodis also works)  
+Game version: v2.9.8 (Mac), Unity 6 — ships TextMeshPro, but `scrController.txtLevelName` is still legacy `UnityEngine.UI.Text`
 
 ---
 
@@ -13,6 +13,8 @@ Game version: v2.9.8 (Mac)
 | `scrConductor` | Audio timing — song position, beat/bar events, spectrum |
 | `scrFloor` | Individual tile — icon, opacity, glow, dummy planets |
 | `scrPlanet` | The player planet — movement, collision, hittable state |
+| `scrPlayer` | Per-player input reader — `ValidInputWasTriggered`, `CountValidKeysPressed`, key stats |
+| `RDInput` | Static input hub wrapping Rewired + SkyHook async input — see Input Architecture below |
 | `scrMistakesManager` | Tracks hit margins, accuracy, xacc |
 | `scrUIController` | In-game UI — noFail image, difficulty, level name |
 | `scrHitText` | Legacy floating judgement text (UI) |
@@ -25,6 +27,48 @@ Game version: v2.9.8 (Mac)
 | `GCS` | Global config statics: `internalLevelName`, `lofiVersion`, `typingMode`, etc. |
 | `ADOBase` | Base MonoBehaviour — exposes `controller`, `isLevelEditor`, `isMobile` |
 | `RDCheatCode` | Per-instance cheat sequence checker — `CheckCheatCode()` reads input history |
+
+---
+
+## Input Architecture (RDInput)
+
+The game reads the keyboard through **four independent layers** — blocking one does not block the others (this bit Bismuth's block-inputs-while-menu-open feature repeatedly):
+
+```txt
+ButtonState enum: WentDown = 0, WentUp = 1, IsDown = 2, IsUp = 3
+
+1. RDInput.GetMain(ButtonState)         — aggregates RDInputType.Main() over active input types
+   ├── get_mainPressCount  = GetMain(WentDown)
+   ├── get_mainHeldCount   = GetMain(IsDown)
+   └── gameplay hit chain:
+       scrPlayer.ValidInputWasTriggered()
+         gate: Input.anyKeyDown || GetMain(IsDown) > 0   (desktop branch)
+         → return CountValidKeysPressed() > 0
+       scrPlayer.CountValidKeysPressed()
+         desktop non-coop: count = mainPressCount        ← the ONLY count source
+         coop: per-player RDInput.playerInputs hashset count (bypasses GetMain)
+         (then GetMainPressKeys-driven bookkeeping: downKeysDuration, keyFrequency,
+          keyTotal — stats only, does not affect the returned count)
+
+2. RDInput.WentDown/IsDown/WentUp(KeyCode) — literal Input.GetKeyDown/GetKey/GetKeyUp
+   passthroughs; used for raw shortcut keys (R-restart, arrows, …)
+
+3. RDInput.GetState(InputAction, ButtonState) — Rewired actions; all the get_*Press
+   properties (restartPress, backPress, confirmPress, cancelPress, quitPress, …) are
+   one-line wrappers over GetState
+
+4. UnityEngine.Input.GetKeyDown direct — menu scenes poll below RDInput entirely:
+   scnLevelSelect.Update / scnLevelSelectTaro.Update read Alpha1… for number-key nav
+```
+
+- `GetMainPressKeys()` = `GetStateKeys(WentDown)` — does **not** route through `GetMain`.
+- `GetStateKeys(ButtonState)` returns `List<AnyKeyCode>`; `AnyKeyCode.value` is either a
+  `KeyCode` (sync path) or an `AsyncKeyCode` (SkyHook async path — `label` is a SkyHook
+  `KeyLabel`, `key` is a raw USB HID usage ID; modifiers report `label = Unknown(119)`).
+- `scrController.LevelNameTextRestore` is called only from `scrController.OnLandOnPortal`
+  (level completion) — not per frame.
+- The game has its own key-limiter counter (`scrPlayer.keyLimiterOverCounter`), zeroed at
+  the top of `CountValidKeysPressed`.
 
 ---
 

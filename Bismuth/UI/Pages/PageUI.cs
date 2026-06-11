@@ -26,6 +26,8 @@ namespace Bismuth.UI.Pages
                     s.FontName = entry.Name;
                     MainClass.ApplySelectedFont();
                     UICore.OnSettingsChanged?.Invoke();
+                    // Stat weight rows on the Overlay tab depend on this family.
+                    PageOverlay.RefreshFontWeightRows?.Invoke();
                 });
 
             UIBuilder.Spacer(content);
@@ -47,42 +49,21 @@ namespace Bismuth.UI.Pages
         }
 
         // ── Family + weight font selector ────────────────────────────────────
-
-        // Canonical ordering for the weight cycle. Names not in this list sort last,
-        // in scan order.
-        private static readonly string[] WeightOrder =
-        {
-            "Thin", "ExtraLight", "UltraLight", "Light", "Regular", "Medium",
-            "SemiBold", "DemiBold", "Bold", "ExtraBold", "UltraBold", "Heavy", "Black",
-        };
-
-        // "Pretendard SemiBold" / "Pretendard-SemiBold" → ("Pretendard", "SemiBold"); a name
-        // whose last token isn't a known weight is a single-weight family shown under its
-        // full name.
+        // Family/weight name parsing lives in FontLoader (shared with the TMP
+        // weight-table wiring).
         private static void SplitWeight(string name, out string family, out string weight)
-        {
-            family = name;
-            weight = "Regular";
-            if (string.IsNullOrEmpty(name)) return;
-            int sp = name.LastIndexOfAny(new[] { ' ', '-' });
-            if (sp <= 0) return;
-            string last = name.Substring(sp + 1);
-            foreach (var w in WeightOrder)
-            {
-                if (string.Equals(last, w, StringComparison.OrdinalIgnoreCase))
-                {
-                    family = name.Substring(0, sp);
-                    weight = w;
-                    return;
-                }
-            }
-        }
+            => FontLoader.SplitWeight(name, out family, out weight);
 
-        private static int WeightRank(string weight)
+        private static int WeightRank(string weight) => FontLoader.WeightRank(weight);
+
+        private static int FindWeight(IList<FontLoader.FontEntry> entries, string weight)
         {
-            for (int i = 0; i < WeightOrder.Length; i++)
-                if (string.Equals(WeightOrder[i], weight, StringComparison.OrdinalIgnoreCase)) return i;
-            return WeightOrder.Length;
+            for (int i = 0; i < entries.Count; i++)
+            {
+                SplitWeight(entries[i].Name, out _, out string w);
+                if (string.Equals(w, weight, StringComparison.OrdinalIgnoreCase)) return i;
+            }
+            return -1;
         }
 
         // One font selector = a family cycle row plus a weight cycle row underneath that
@@ -162,14 +143,12 @@ namespace Bismuth.UI.Pages
             UIBuilder.Dropdown(parent, label, familyNames, familyIdx, idx =>
             {
                 var entries = byFamily[familyNames[idx]];
-                // Keep the previous weight when the new family has it; else prefer Regular,
-                // which entries[0]-after-sort approximates closely enough.
-                int pick = 0;
-                for (int i = 0; i < entries.Count; i++)
-                {
-                    SplitWeight(entries[i].Name, out _, out string w);
-                    if (string.Equals(w, curWeight, StringComparison.OrdinalIgnoreCase)) { pick = i; break; }
-                }
+                // Family change always lands on Regular when the family has it (carrying
+                // the previous weight over surprises — e.g. Maplestory-Bold → Pretendard
+                // landed on Bold); fall back to the previous weight, then the lightest.
+                int pick = FindWeight(entries, "Regular");
+                if (pick < 0) pick = FindWeight(entries, curWeight);
+                if (pick < 0) pick = 0;
                 SplitWeight(entries[pick].Name, out _, out curWeight);
                 apply(entries[pick]);
                 rebuildWeights(idx, curWeight);

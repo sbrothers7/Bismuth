@@ -316,14 +316,24 @@ namespace Bismuth.UI.Pages
         private void Update()
         {
             if (!Active || OnKey == null) return;
-            for (int i = 0; i < Watched.Length; i++)
+            // Capture happens while the menu is open, i.e. exactly when the raw
+            // GetKeyDown block is engaged — exempt these reads.
+            KeyLimiter.RawReadExempt = true;
+            try
             {
-                var k = Watched[i];
-                if (Input.GetKeyDown(k))
+                for (int i = 0; i < Watched.Length; i++)
                 {
-                    OnKey(k);
-                    return;
+                    var k = Watched[i];
+                    if (Input.GetKeyDown(k))
+                    {
+                        OnKey(k);
+                        return;
+                    }
                 }
+            }
+            finally
+            {
+                KeyLimiter.RawReadExempt = false;
             }
         }
     }

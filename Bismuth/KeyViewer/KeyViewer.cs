@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -25,7 +26,7 @@ namespace Bismuth
         // Draggable panel rects for the location editor.
         internal RectTransform HandPanel => _handPanel;
         internal RectTransform FootPanel => _footPanel;
-        private Font _font;
+        private TMP_FontAsset _font;
 
         // Persistent across rebuilds
         // Per-preset counts: presetName → (key → count). Each preset persists its own totals.
@@ -35,16 +36,16 @@ namespace Bismuth
         private class KeyCellRefs
         {
             public RoundedRectGraphic Bg;
-            public Text  Name;
-            public Text  Count;
+            public TextMeshProUGUI Name;
+            public TextMeshProUGUI Count;
             public KeyViewerPreset Preset;
         }
 
         private class StatCellRefs
         {
             public RoundedRectGraphic Bg;
-            public Text  Name;
-            public Text  Value;
+            public TextMeshProUGUI Name;
+            public TextMeshProUGUI Value;
             public KeyViewerPreset Preset;
         }
 
@@ -224,7 +225,7 @@ namespace Bismuth
             _lastTotalPerPreset.Clear();
         }
 
-        internal void SetFont(Font font)
+        internal void SetFont(TMP_FontAsset font)
         {
             _font = font;
             foreach (var kvp in _keyCells)

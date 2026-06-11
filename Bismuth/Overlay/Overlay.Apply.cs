@@ -1,3 +1,4 @@
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -50,19 +51,21 @@ namespace Bismuth
             var defaultShColor = new Color(0f, 0f, 0f, 0.5f);
             if (_comboValueShadow != null)
             {
-                _comboValueShadow.effectColor    = settings.ComboShadowColor?.ToColor() ?? defaultShColor;
+                _comboValueShadow.Color    = settings.ComboShadowColor?.ToColor() ?? defaultShColor;
                 float countShadowScale = settings.ComboDisplaySize * settings.ComboCountSize;
-                _comboValueShadow.effectDistance = new Vector2(
+                _comboValueShadow.OffsetPx = new Vector2(
                     settings.ComboShadowOffsetX * countShadowScale,
                     settings.ComboShadowOffsetY * countShadowScale);
+                _comboValueShadow.Apply();
             }
             if (_comboLabelShadow != null)
             {
-                _comboLabelShadow.effectColor    = settings.ComboLabelShadowColor?.ToColor() ?? defaultShColor;
+                _comboLabelShadow.Color    = settings.ComboLabelShadowColor?.ToColor() ?? defaultShColor;
                 float labelShadowScale = settings.ComboDisplaySize * settings.ComboLabelSize;
-                _comboLabelShadow.effectDistance = new Vector2(
+                _comboLabelShadow.OffsetPx = new Vector2(
                     settings.ComboLabelShadowOffsetX * labelShadowScale,
                     settings.ComboLabelShadowOffsetY * labelShadowScale);
+                _comboLabelShadow.Apply();
             }
 
             // Container scales below stay at 1; each scale slider fans out into the child Text
@@ -95,8 +98,8 @@ namespace Bismuth
                 {
                     if (t == null) continue;
                     t.fontSize = judgementFs;
-                    var sh = t.GetComponent<Shadow>();
-                    if (sh != null) sh.effectDistance = judgementShadow;
+                    var sh = t.GetComponent<TmpShadow>();
+                    if (sh != null) { sh.OffsetPx = judgementShadow; sh.Apply(); }
                 }
 
             if (attemptsContainer != null)
@@ -127,11 +130,73 @@ namespace Bismuth
             SetRow(xaccRow,     xaccLabel,     xaccValue,     settings.Scale);
             SetRow(bpmRow,      bpmLabel,      bpmValue,      settings.Scale);
             SetRow(tileBpmRow,  tileBpmLabel,  tileBpmValue,  settings.Scale);
+
+            // Master shadow pass — runs after the per-part blocks above so it has the
+            // final offsets; combo label/count keep their dedicated colors.
+            bool shadowOn = settings.OverlayShadowEnabled;
+            var shadowColor = settings.OverlayShadowColor?.ToColor() ?? new Color(0f, 0f, 0f, 0.5f);
+            foreach (var sh in GetComponentsInChildren<TmpShadow>(true))
+            {
+                sh.Enabled = shadowOn;
+                if (sh != _comboValueShadow && sh != _comboLabelShadow) sh.Color = shadowColor;
+                sh.Apply();
+            }
+
+            ApplySeparators(settings);
+
+            // Text/spacing changes only dirty the layout for the next frame; force the
+            // rebuild now so a separator edit reflows the rows while the menu is open.
+            if (leftContainer != null)         LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)leftContainer);
+            if (rightContainer != null)        LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)rightContainer);
+            if (attemptsContainer != null)     LayoutRebuilder.ForceRebuildLayoutImmediate(attemptsContainer);
+            if (timingScaleContainer != null)  LayoutRebuilder.ForceRebuildLayoutImmediate(timingScaleContainer);
         }
 
-        private const float RowBaseLayoutHeight = 30f;
+        // TMP never includes trailing whitespace in a text's preferred width (plain or
+        // non-breaking), so a separator like " | " would render flush against the value.
+        // The visible part of the separator lives in the label text; the trailing-space
+        // run is converted into HorizontalLayoutGroup.spacing sized from the actual
+        // space-glyph advance at the label's current font and size.
+        private void ApplySeparators(Settings settings)
+        {
+            string sep = StatSeparator(settings);
+            int trail = 0;
+            while (trail < sep.Length && sep[sep.Length - 1 - trail] == ' ') trail++;
+            string visible = sep.Substring(0, sep.Length - trail);
 
-        private static void SetRow(GameObject row, Text label, Text value, float scale)
+            SetRowSeparator(progressRow, progressLabel, "Progress",  visible, trail);
+            SetRowSeparator(accRow,      accLabel,      "Accuracy",  visible, trail);
+            SetRowSeparator(xaccRow,     xaccLabel,     "XAccuracy", visible, trail);
+            SetRowSeparator(bpmRow,      bpmLabel,      "BPM",       visible, trail);
+            SetRowSeparator(tileBpmRow,  tileBpmLabel,  "TBPM",      visible, trail);
+
+            // Fixed-format rows keep their own separators but need the same
+            // trailing-space treatment.
+            SetRowSeparator(attemptsRow,     attemptsLabel,     "Attempts",      ":", 1);
+            SetRowSeparator(attemptsFullRow, attemptsFullLabel, "Full Attempts", ":", 1);
+            SetRowSeparator(timingScaleRow,  timingScaleLabel,  "TimingScale",   " -", 1);
+        }
+
+        private static void SetRowSeparator(GameObject row, TextMeshProUGUI label, string baseText,
+            string visibleSep, int trailingSpaces)
+        {
+            if (label == null) return;
+            label.text = baseText + visibleSep;
+            var hlg = row != null ? row.GetComponent<HorizontalLayoutGroup>() : null;
+            if (hlg != null)
+                hlg.spacing = trailingSpaces > 0 ? trailingSpaces * SpaceWidth(label) : 0f;
+        }
+
+        private static float SpaceWidth(TMP_Text t)
+        {
+            // Interior spaces measure fine — diff a pair of glyphs with and without one.
+            float w = t.GetPreferredValues("| |").x - t.GetPreferredValues("||").x;
+            return w > 0f ? w : t.fontSize * 0.25f;
+        }
+
+        private const float RowBaseLayoutHeight = 27f;
+
+        private static void SetRow(GameObject row, TextMeshProUGUI label, TextMeshProUGUI value, float scale)
         {
             int fs = Mathf.RoundToInt(RowBaseFontSize * scale);
             var shadowOffset = new Vector2(ShadowBaseOffset, -ShadowBaseOffset) * scale;
@@ -144,12 +209,12 @@ namespace Bismuth
             }
         }
 
-        private static void ApplyTextScale(Text t, int fs, Vector2 shadowOffset)
+        private static void ApplyTextScale(TextMeshProUGUI t, int fs, Vector2 shadowOffset)
         {
             if (t == null) return;
             t.fontSize = fs;
-            var sh = t.GetComponent<Shadow>();
-            if (sh != null) sh.effectDistance = shadowOffset;
+            var sh = t.GetComponent<TmpShadow>();
+            if (sh != null) { sh.OffsetPx = shadowOffset; sh.Apply(); }
         }
 
         private void PlaceRows(Settings settings)
@@ -264,7 +329,53 @@ namespace Bismuth
             // dynamic font at a smaller size anyway.
             rt.localScale = Vector3.one * settings.LevelNameScale;
             rt.anchoredPosition = _levelNameOrigPos.Value + new Vector2(0f, settings.LevelNameY);
+
+            if (_levelNameOrigFont == null) _levelNameOrigFont = ctrl.txtLevelName.font;
+            bool styled = settings.LevelNameUseOverlayFont;
+            var wantFont = styled ? (_levelNameFont ?? _levelNameOrigFont) : _levelNameOrigFont;
+            if (wantFont != null && ctrl.txtLevelName.font != wantFont)
+                ctrl.txtLevelName.font = wantFont;
+
+            // Bismuth-style drop shadow, swapped in with the font. The game's own
+            // Shadow/Outline are suspended so the effects don't stack; the offset is
+            // divided by LevelNameScale because localScale shrinks the whole subtree,
+            // landing at the same ~2px screen offset as the overlay rows.
+            if (styled)
+            {
+                if (_levelNameShadow == null)
+                {
+                    var existing = ctrl.txtLevelName.GetComponents<Shadow>();
+                    var enabledFx = new System.Collections.Generic.List<Shadow>();
+                    foreach (var fx in existing)
+                        if (fx != null && fx.enabled) enabledFx.Add(fx);
+                    _levelNameGameEffects = enabledFx.ToArray();
+
+                    _levelNameShadow = ctrl.txtLevelName.gameObject.AddComponent<Shadow>();
+                    _levelNameShadow.effectColor = new Color(0f, 0f, 0f, 0.5f);
+                }
+                if (_levelNameGameEffects != null)
+                    foreach (var fx in _levelNameGameEffects)
+                        if (fx != null) fx.enabled = false;
+                _levelNameShadow.enabled = settings.OverlayShadowEnabled;
+                _levelNameShadow.effectColor = settings.OverlayShadowColor?.ToColor() ?? new Color(0f, 0f, 0f, 0.5f);
+                float inv = settings.LevelNameScale > 0.01f ? 1f / settings.LevelNameScale : 1f;
+                _levelNameShadow.effectDistance = new Vector2(ShadowBaseOffset, -ShadowBaseOffset) * inv;
+            }
+            else
+            {
+                if (_levelNameShadow != null) _levelNameShadow.enabled = false;
+                if (_levelNameGameEffects != null)
+                    foreach (var fx in _levelNameGameEffects)
+                        if (fx != null) fx.enabled = true;
+            }
+
             ctrl.txtLevelName.gameObject.SetActive(!settings.ActiveHideAllUI && !settings.ActiveHideLevelName);
+        }
+
+        internal void SetLevelNameFont(Font font)
+        {
+            _levelNameFont = font;
+            ApplyLevelNameTransform();
         }
     }
 }

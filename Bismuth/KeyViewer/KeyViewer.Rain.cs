@@ -14,6 +14,20 @@ namespace Bismuth
             while (_hitTimes.Count > 0 && now - _hitTimes.Peek() > 1f)
                 _hitTimes.Dequeue();
 
+            // The viewer keeps observing keys while the settings menu blocks the game.
+            KeyLimiter.RawReadExempt = true;
+            try
+            {
+                PollKeys(now);
+            }
+            finally
+            {
+                KeyLimiter.RawReadExempt = false;
+            }
+        }
+
+        private void PollKeys(float now)
+        {
             foreach (var key in _keys)
             {
                 bool down = Input.GetKeyDown(key);

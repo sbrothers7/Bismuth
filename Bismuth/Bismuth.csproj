@@ -88,6 +88,7 @@
         <Compile Include="Util\AttemptsStore.cs" />
         <Compile Include="Util\BismuthLog.cs" />
         <Compile Include="Util\FontLoader.cs" />
+        <Compile Include="Util\TmpShadow.cs" />
         <Compile Include="UI\Theme.cs" />
         <Compile Include="UI\UIBuilder.cs" />
         <Compile Include="UI\DragHandle.cs" />

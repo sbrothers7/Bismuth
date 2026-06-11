@@ -1,6 +1,6 @@
 using System;
+using TMPro;
 using UnityEngine;
-using UnityEngine.UI;
 
 namespace Bismuth
 {
@@ -183,31 +183,41 @@ namespace Bismuth
             if (attemptsFullValue != null) attemptsFullValue.text = "0";
         }
 
-        public void SetFont(Font font)
+        // labelFont/valueFont override the stat rows' label/value texts, and
+        // comboLabelFont/comboValueFont the combo display's (null = font);
+        // judgements and FPS always use the base font.
+        public void SetFont(TMP_FontAsset font, TMP_FontAsset labelFont = null, TMP_FontAsset valueFont = null,
+            TMP_FontAsset comboLabelFont = null, TMP_FontAsset comboValueFont = null)
         {
             if (font == null) return;
-            if (progressLabel != null)  progressLabel.font  = font;
-            if (progressValue != null)  progressValue.font  = font;
-            if (attemptsLabel != null)  attemptsLabel.font  = font;
-            if (attemptsValue != null)  attemptsValue.font  = font;
-            if (attemptsFullLabel != null) attemptsFullLabel.font = font;
-            if (attemptsFullValue != null) attemptsFullValue.font = font;
-            if (accLabel != null)       accLabel.font       = font;
-            if (accValue != null)       accValue.font       = font;
-            if (xaccLabel != null)      xaccLabel.font      = font;
-            if (xaccValue != null)      xaccValue.font      = font;
-            if (bpmLabel != null)       bpmLabel.font       = font;
-            if (bpmValue != null)       bpmValue.font       = font;
-            if (tileBpmLabel != null)       tileBpmLabel.font       = font;
-            if (tileBpmValue != null)       tileBpmValue.font       = font;
-            if (timingScaleLabel != null)    timingScaleLabel.font    = font;
-            if (timingScaleValue != null)    timingScaleValue.font    = font;
-            if (comboDisplayLabel != null)   comboDisplayLabel.font   = font;
-            if (comboDisplayValue != null)   comboDisplayValue.font   = font;
+            var lf = labelFont ?? font;
+            var vf = valueFont ?? font;
+            if (progressLabel != null)  progressLabel.font  = lf;
+            if (progressValue != null)  progressValue.font  = vf;
+            if (attemptsLabel != null)  attemptsLabel.font  = lf;
+            if (attemptsValue != null)  attemptsValue.font  = vf;
+            if (attemptsFullLabel != null) attemptsFullLabel.font = lf;
+            if (attemptsFullValue != null) attemptsFullValue.font = vf;
+            if (accLabel != null)       accLabel.font       = lf;
+            if (accValue != null)       accValue.font       = vf;
+            if (xaccLabel != null)      xaccLabel.font      = lf;
+            if (xaccValue != null)      xaccValue.font      = vf;
+            if (bpmLabel != null)       bpmLabel.font       = lf;
+            if (bpmValue != null)       bpmValue.font       = vf;
+            if (tileBpmLabel != null)       tileBpmLabel.font       = lf;
+            if (tileBpmValue != null)       tileBpmValue.font       = vf;
+            if (timingScaleLabel != null)    timingScaleLabel.font    = lf;
+            if (timingScaleValue != null)    timingScaleValue.font    = vf;
+            if (comboDisplayLabel != null)   comboDisplayLabel.font   = comboLabelFont ?? font;
+            if (comboDisplayValue != null)   comboDisplayValue.font   = comboValueFont ?? font;
             if (fpsText != null)             fpsText.font             = font;
             if (judgementTexts != null)
                 foreach (var t in judgementTexts)
                     if (t != null) t.font = font;
+            // Changing the font asset swaps the material, dropping the underlay setup —
+            // re-apply every shadow against the new per-text material instance.
+            foreach (var sh in GetComponentsInChildren<TmpShadow>(true))
+                sh.Apply();
         }
     }
 }

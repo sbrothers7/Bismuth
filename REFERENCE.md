@@ -3,6 +3,8 @@
 A HarmonyX / UnityModManager overlay mod for **A Dance of Fire and Ice (ADOFAI)**.  
 Build: `xbuild Bismuth.sln` (Mono, .NET 4.8). Three expected warnings (toolset version, TextCoreModule ref).
 
+The game is Unity 6 and ships TextMeshPro; the HUD (Overlay + KeyViewer) renders with TMP, while the settings panel stays on legacy `UnityEngine.UI.Text`. New `.cs` files must be added to `Bismuth.csproj`'s explicit `<Compile>` list.
+
 Project philosophy: Minimal and lightweight, but highly customizable.
 
 ---
@@ -67,53 +69,47 @@ Bismuth/
 │   ├── Overlay.Apply.cs      partial: ApplySettings, PlaceRows, Attach, ShowOrHideElements, ApplyLevelNameTransform
 │   └── ColorGradient.cs      `ColorGradient` / `ColorStop` types + `Evaluate(t)`
 ├── Settings/
-│   ├── Settings.cs           All serialized mod settings + gradient/preset defaults
-│   ├── SettingsInput.cs      Shared input widgets (deferred-commit text, Slider with undo button)
-│   ├── SettingsGui.cs        partial: entry point + shared state fields + nav-state reset
-│   ├── SettingsGui.Overlay.cs    partial: overlay stat rows
-│   ├── SettingsGui.Combo.cs      partial: combo display section
-│   ├── SettingsGui.KeyViewer.cs  partial: key viewer category + preset edit page + KV color editor
-│   ├── SettingsGui.KeyLimiter.cs partial: key limiter section
-│   ├── SettingsGui.HideUi.cs     partial: hide UI toggles
-│   ├── SettingsGui.Tweaks.cs     partial: tweaks + optimizations + font + misc
-│   ├── SettingsGui.Gradient.cs   partial: gradient + color-stop editors
-│   └── SettingsGui.Helpers.cs    partial: Indent / W / WMax / DrawSwatch / hex / position buttons / SliderRow shim
+│   └── Settings.cs           All serialized mod settings + gradient/preset defaults
 ├── Patches/
 │   ├── Patches.cs            HarmonyX prefix/postfix patches for overlay/judgement/UI hooks
 │   └── Optimizations.cs      Performance tweak patches (texture, physics, DOTween, etc.)
-├── UI/                       UGUI settings shell — in-progress replacement for IMGUI SettingsGui
+├── UI/                       UGUI settings shell (the only settings UI — the old IMGUI panel was deleted June 2026)
 │   ├── UICore.cs             Root canvas + panel + titlebar + footer + body layout + hotkey + open/close + UI scale
-│   ├── Theme.cs              Color palette + runtime accent system (AccentFill/AccentBorder markers) + lazy OS-font + 2×2 white sprite
+│   ├── Theme.cs              Color palette + runtime accent system (AccentFill/AccentBorder markers) + panel font + 2×2 white sprite
 │   ├── UIBuilder.cs          Static widget factory: Rect/Label/SectionHeader(+WithHelp)/Toggle/Collapsible/Slider/Button/DangerButton/ColorPicker/TextInput/Segmented/CycleSelector/ExpandSection/GradientEditor/AccentSwatches + ClickHandler/HoverHandler
 │   ├── DragHandle.cs         Titlebar drag: re-parents pointer events to the panel RectTransform
 │   ├── ResizeHandle.cs       8 edge/corner resize handles — BR corner 22px (visible grip), others 12px
 │   ├── TabRail.cs            Left-rail tab nav; auto-wraps each page in a ScrollRect/Viewport/Content
+│   ├── LocationEditor.cs     Drag-to-position edit mode (own SSO canvas, LocHandle per movable element, axis snapping)
 │   └── Pages/
-│       ├── KeyTokens.cs      Shared TokenFromKeyCode / PrettyTokenLabel helpers (mirrors SettingsGui table)
-│       ├── PageOverlay.cs    Overlay stats, combo display, attempts (+ full attempts), song title
+│       ├── KeyTokens.cs      Shared TokenFromKeyCode / PrettyTokenLabel helpers
+│       ├── PageOverlay.cs    Overlay stats (+separator/weight rows), combo display, attempts, song title, FPS
 │       ├── PageKeyViewer.cs  Preset lists + full preset editor (row grid, drag-reorder, rebind, submenus)
-│       ├── PageInput.cs      Menu input-block toggle + Key Limiter (chip editor + listen) + Chatter Blocker
+│       ├── PageInput.cs      Menu input-block toggle + Key Limiter (chip editor + listen) + Chatter Blocker + KeyListener component
 │       ├── PageHideUi.cs     Hide UI toggles with conditional sub-container
-│       └── PageUI.cs         Panel scale slider, font cycle, accent color (swatches or custom picker)
+│       ├── PageLocations.cs  Location editor entry (opens LocationEditor)
+│       ├── PageUI.cs         Panel scale slider, panel/overlay font pickers (family + weight), accent color
+│       └── PageMisc.cs       Read-only stats (RAM savings) + misc toggles
 └── Util/
     ├── AttemptsStore.cs      Persists per-level attempt counts to `BismuthAttempts.txt`
     ├── BismuthLog.cs         File-based session logger → `BismuthLog.txt`
-    └── FontLoader.cs         Scans for fonts and exposes them to the GUI
+    ├── FontLoader.cs         Font bundle scan → FontEntry list (legacy Font + lazy TMP_FontAsset with weight table); name matching; weight parsing
+    └── TmpShadow.cs          TMP drop-shadow component — drives the SDF underlay (legacy Shadow doesn't affect TMP)
 ```
 
-When adding a new section to the settings GUI, follow the partial-file pattern: put state-fields/Draw entry calls in the section partial, expose a `Draw<Name>Section(settings, ref changed)` helper, and call it from `Draw()` in `SettingsGui.cs`. The class shell in each partial uses `internal static partial class SettingsGui` (or `internal/public partial class …` for `KeyViewer` / `Overlay`).
+Pages register via `UICore.Tabs.AddTab(name, BuildPage)` in `MainClass.TryEagerInit`. Pages are built **once** at registration and only shown/hidden on tab switch — anything whose option set depends on runtime state (e.g. the font-weight rows) needs an explicit refresh hook (`PageOverlay.RefreshFontWeightRows`).
 
 ---
 
 ## UI shell (`UI/`)
 
-Bismuth is mid-migration from UMM's IMGUI settings panel to a self-owned UGUI canvas — same loader (UMM-style entry point, UMMCompat-compatible), different render path. Both run in parallel during the port; the IMGUI panel will be removed once feature parity is reached.
+The settings panel is a self-owned UGUI canvas (the old IMGUI panel was removed June 2026; UMM's OnGUI now just shows an "Open Settings Panel" button).
 
 ### Architecture
 
 Modeled on KorenResourcePack v2's UI structure, stripped to the minimum:
 
-- **No dependencies added** — uses `UnityEngine.UI.Text` (legacy), reuses `RoundedRectGraphic`, no TMP, no tween library, no asset bundles. Arial via `Font.CreateDynamicFontFromOSFont`; a 2×2 white texture generated once at runtime is the only sprite.
+- **No dependencies added** — the panel uses `UnityEngine.UI.Text` (legacy, deliberately — the TMP migration covers the HUD only), reuses `RoundedRectGraphic`, no tween library. Panel font comes from the bundled fonts via `Theme.ApplyFont` (default Pretendard-Regular); a 2×2 white texture generated once at runtime is the only sprite.
 - **Static-only** — `UICore` is a static class, not a MonoBehaviour. UMM's `modEntry.OnUpdate` drives `UICore.HandleUpdate()` every frame. `UICore.Initialize(modEntry, settings, onChanged)` builds the canvas; `UICore.Dispose()` tears it down on mod disable.
 - **Sharp/minimal aesthetic** — flat rectangles, 1px hairline borders (`UIBuilder.AddBorder`), no rounded panels, no fades. The only rounded geometry is the radio-button widget via `RoundedRectGraphic`.
 
@@ -170,7 +166,12 @@ This applies to all future hotkeys: **never bind Option + letter on macOS.** Cmd
 | `ShowAttempts` | `false` | Show attempts counter |
 | `ShowFullAttempts` | `false` | Show full-attempts counter (attempts started at 0% — checkpoint restarts excluded). Renders as a second row under Attempts in the same container |
 | `Scale` | `1.0` | Scale applied to left/right overlay columns |
-| `FontName` | `"Maplestory Bold"` | Font used for all overlay text |
+| `FontName` | `"Pretendard-Regular"` | Font used for all overlay text (bundle asset names are hyphenated; `FontLoader.Find` matches ignoring spaces/hyphens/case) |
+| `StatSeparator` | `" \| "` | Text between a stat row's label and value; empty falls back to `" \| "`. Trailing spaces become HLG spacing (TMP never measures trailing whitespace — see Fonts section) |
+| `StatLabelWeight` | `"Medium"` | Weight override for stat row labels (`""` = match the overlay font). Honored only when the family has that weight |
+| `StatValueWeight` | `""` | Weight override for stat row values |
+| `OverlayShadowEnabled` | `true` | Master switch for every overlay text shadow (rows, judgements, attempts, FPS, combo, song title) |
+| `OverlayShadowColor` | `(0, 0, 0, 0.5)` | Master shadow color — applies to everything except combo label/count, which keep their dedicated colors but obey the switch |
 
 ### Row positions (`OverlayPosition` enum: `Left` / `Right`)
 
@@ -218,10 +219,12 @@ The attempts container is a VLG holding both the Attempts row and the Full Attem
 | `ComboLabelSize` | `1.0` | Additional fontSize multiplier for the label only (`ComboLabelBaseFontSize × ComboLabelSize × ComboDisplaySize`); also scales the label shadow |
 | `ComboCountSize` | `1.0` | Additional fontSize multiplier for the count only (`ComboValueBaseFontSize × ComboCountSize × ComboDisplaySize`); also scales the count shadow |
 | `ComboCountAuto` | `false` | Whether autoplay tiles increment (but never break) the combo |
-| `ComboShadowOffsetX` / `ComboShadowOffsetY` | `4` / `-4` | Count (`comboDisplayValue`) drop-shadow offset in px; multiplied by `ComboDisplaySize × ComboCountSize` |
-| `ComboShadowColor` | `(0, 0, 0, 0.5)` | Count drop-shadow `Shadow.effectColor` |
+| `ComboShadowOffsetX` / `ComboShadowOffsetY` | `4` / `-4` | Count (`comboDisplayValue`) drop-shadow offset in px (TmpShadow underlay); multiplied by `ComboDisplaySize × ComboCountSize` |
+| `ComboShadowColor` | `(0, 0, 0, 0.5)` | Count drop-shadow color |
 | `ComboLabelShadowOffsetX` / `ComboLabelShadowOffsetY` | `2.5` / `-2.5` | Label drop-shadow offset in px; multiplied by `ComboDisplaySize × ComboLabelSize` |
 | `ComboLabelShadowColor` | `(0, 0, 0, 0.5)` | Label drop-shadow color |
+| `ComboLabelWeight` | `""` | Weight override for the combo label (`""` = match overlay font) |
+| `ComboValueWeight` | `"Heaviest"` | Weight override for the count. `FontLoader.WeightHeaviest` is a sentinel resolving to the family's heaviest weight at apply time; its dropdown option only exists on the Count row |
 | `ComboPulseOffsetY` | `8` | Extra Y offset (px) added to `_comboLabelWrapper` at pulse peak — label rises then settles back to `ComboLabelY` |
 | `ComboPulseScale` | `0.2` | Extra fontSize multiplier applied to the count at pulse peak (`+0.2` = 20% bigger). Animated via `fontSize`, not `localScale`, so the rasterized text stays crisp |
 | `ComboPulseDuration` | `0.2` | Seconds for the pulse to decay from peak to normal |
@@ -305,7 +308,7 @@ Token parsing: `KeyViewer.TryParseKey` maps friendly names (`Tab`, `LShift`, `LC
 
 | Field | Default | Purpose |
 | ----- | ------- | ------- |
-| `BlockInputsWhileMenuOpen` | `true` | While the Bismuth UGUI menu is open, no gameplay inputs register at all (both `GetMain` and `AddHit` paths short-circuit on `UICore.IsOpen`). Toggle lives at the top of the Input page |
+| `BlockInputsWhileMenuOpen` | `true` | While the Bismuth menu is open, the game sees no keyboard input at all — see "Menu input block" below for the four patched layers. Toggle lives at the top of the Input page |
 | `KeyLimiterEnabled` | `true` | Master toggle for the allowed-key filter |
 | `KeyLimiterUseKvKeys` | `true` | If true, allowed set = union of active hand + foot preset keys; else parse `KeyLimiterCustomKeys` |
 | `KeyLimiterCustomKeys` | `""` | Space/comma-separated key tokens (same parser as KeyViewer) |
@@ -318,9 +321,20 @@ The KeyLimiter, ChatterBlocker, and Ghost-key suppression all share a single pre
 
 **Ghost-key suppression** is collected at `Apply` time from the active hand preset's `GhostKeys` into `_ghosts: HashSet<KeyCode>`. It always applies — independent of the limiter / chatter toggles — so pressing a ghost key never registers as a tile hit. The postfix gate fires when any of `_active`, `_chatterActive`, or `_ghosts.Count > 0` is true.
 
-**Menu input block**: when `BlockInputsWhileMenuOpen` is set and `UICore.IsOpen`, the `GetMain` postfix zeroes `__result` (main port only, `__0 == 0`) and the `AddHit` prefix returns `false` — before any limiter/chatter logic runs. The flag is cached as `_blockWhileOpen` in `Apply`.
+**Menu input block**: the game reads the keyboard through **four independent layers**, all gated on `BlockInputs` (`_blockWhileOpen && UICore.IsOpen`):
 
-1. **`RDInput.GetMain(int state)` postfix** — fires when either filter is enabled (`_active || _chatterActive`), state = `ButtonState.Down`, and we're not re-entering. Clamps `__result` to `CountAllowedInPressedKeys()`, which iterates `RDInput.GetStateKeys(Down)` (via reflection), resolves each press to a Unity `KeyCode` (direct, async label via `AsyncKeyToUnityKey`, or HID fallback), then applies: **limiter** (drop if `_active && !allowed`) and **chatter** (drop if `_chatterActive` and the key's previous accepted-press time is within `_chatterThresholdSec`). On accept, the key's `_lastPressTime` is updated. P/Space pass when `scrController.state != PlayerControl` (death screen, pause menu, between tiles).
+| Layer | Used by | Patch |
+| ----- | ------- | ----- |
+| `RDInput.GetMain(ButtonState)` | press counting → `mainPressCount` → `scrPlayer.CountValidKeysPressed` → planet hits | postfix → 0 when state = `WentDown` |
+| `RDInput.WentDown/IsDown(KeyCode)` | raw shortcut keys (R-restart, arrows, …) — straight `Input.GetKeyDown/GetKey` passthroughs | postfix → false |
+| `RDInput.GetState(InputAction, ButtonState)` | Rewired actions behind `restartPress`/`backPress`/`confirmPress`/… properties | postfix → false |
+| `UnityEngine.Input.GetKeyDown(KeyCode)` | menu scenes (scnLevelSelect & co.) poll number-key navigation directly, below RDInput | postfix → false, **except `KeyCode.B`** (Ctrl+B must still close the panel). Extern icall — patched via `KeyLimiter.TryPatchRawInput(harmony)` after `PatchAll`, try/caught so a failed native detour only loses this layer |
+
+`ButtonState`: `WentDown=0, WentUp=1, IsDown=2, IsUp=3`. The `AddHit` prefix additionally returns `false` while blocked.
+
+**`RawReadExempt`**: Bismuth's own pollers must keep seeing keys while the menu is open — KeyViewer's `PollKeys` (rain/counting) and PageInput's `KeyListener` (rebind + limiter Listen chips) set `KeyLimiter.RawReadExempt` in try/finally around their reads (main-thread-only plain bool). **Any new mod-side `Input` polling needs the same wrap.** The panel itself reads `UnityEngine.Input` in `UICore.HandleUpdate` (Ctrl+B) — covered by the B exemption.
+
+1. **`RDInput.GetMain(ButtonState)` postfix** (limiter/chatter part) — fires when either filter is enabled (`_active || _chatterActive`), state = `WentDown`, and we're not re-entering. Clamps `__result` to `CountAllowedInPressedKeys()`, which iterates `RDInput.GetStateKeys(Down)` (via reflection), resolves each press to a Unity `KeyCode` (direct, async label via `AsyncKeyToUnityKey`, or HID fallback), then applies: **limiter** (drop if `_active && !allowed`) and **chatter** (drop if `_chatterActive` and the key's previous accepted-press time is within `_chatterThresholdSec`). On accept, the key's `_lastPressTime` is updated. P/Space pass when `scrController.state != PlayerControl` (death screen, pause menu, between tiles).
 2. **`scrMistakesManager.AddHit(HitMargin)` prefix** — fallback that returns `false` (suppressing the hit) if no allowed key is currently held (tolerant to 1-frame async delay using `Input.GetKey`).
 
 For the limiter's allowed-set check we always compare in the label direction (`_allowedLabels`) — `AsyncKeyToUnityKey` is ambiguous (multiple `KeyCode`s collapse to one `KeyLabel` slot). The chatter blocker still needs a Unity `KeyCode` as its state-tracking identity, so it calls `AsyncKeyToUnityKey` (best-effort) — collisions just mean a few physically distinct keys share one chatter timer, which is harmless.
@@ -348,15 +362,16 @@ The `0xE1`/`0xE5` codes were confirmed via diagnostic logging — earlier guesse
 
 | Field | Default | Purpose |
 | ----- | ------- | ------- |
-| `LevelNameScale` | `0.5` | `localScale` applied to `txtLevelName.rectTransform` |
-| `LevelNameY` | `40` | Additive Y offset from `_levelNameOrigPos` (px) |
+| `LevelNameScale` | `0.3` | `localScale` applied to `txtLevelName.rectTransform` |
+| `LevelNameY` | `30` | Additive Y offset from `_levelNameOrigPos` (px) |
+| `LevelNameUseOverlayFont` | `true` | Repaint the game's song title/artist with the overlay font (legacy `Font` — `txtLevelName` is uGUI Text) and give it the Bismuth drop shadow; the game's own Shadow/Outline are suspended while active and restored on toggle-off |
 
 ### UGUI panel preferences (UI shell)
 
 | Field | Default | Purpose |
 | ----- | ------- | ------- |
 | `UiScale` | `1.0` | Panel UI scale (0.5–2). Implemented by shrinking the CanvasScaler reference resolution; panel sizeDelta is counter-scaled so on-screen size stays constant |
-| `UiFontName` | `""` | Selected panel font (from `FontLoader` scan); empty = OS Arial fallback |
+| `UiFontName` | `"Pretendard-Regular"` | Selected panel font (from `FontLoader` scan); missing/stale names fall back to Pretendard-Regular |
 | `UiAccentCustom` | `false` | If true, the accent color picker is shown instead of preset swatches |
 | `UiAccentR/G/B` | periwinkle | Saved accent color, applied via `Theme.ApplyAccent` on init |
 | `UiPanelWidth` / `UiPanelHeight` | `840` / `540` | Panel dimensions in canonical scale-1.0 units, saved on Close. Position is **not** saved — the panel always re-centers on Open |
@@ -381,6 +396,46 @@ ColorStop
 
 ---
 
+## Fonts & text rendering
+
+The HUD (Overlay + KeyViewer) is **TextMeshPro** (`TextMeshProUGUI`); the settings panel and the game's `txtLevelName` are legacy uGUI `Text`. The game ships `Unity.TextMeshPro.dll` + TextCore modules (referenced in the csproj).
+
+### FontLoader (`Util/FontLoader.cs`)
+
+- `ScanFonts(modPath)` loads `Resources/bismuth-fonts` (a Unity AssetBundle of legacy `Font` assets — names are hyphenated: `Pretendard-Regular`, `Maplestory-Bold`, …) into `FontEntry` objects, then `LinkFamilies` wires each entry's `BoldSibling`.
+- `FontEntry.TmpFont` lazily creates a dynamic-SDF `TMP_FontAsset` via `TMP_FontAsset.CreateFontAsset(Font)` on first use, naming it `"<name> (TMP)"` and wiring the family's real Bold into `fontWeightTable[7]` so `<b>`/`FontStyles.Bold` render true bold glyphs instead of synthetic dilation.
+- `Find(fonts, name)` matches names ignoring spaces/hyphens/case — heals old saves that spell `"Maplestory Bold"` with a space. Missing names fall back to the hard default (`Pretendard-Regular`) in `MainClass.ApplySelectedFont` / `UICore.ResolveSavedFont`, **not** to `fonts[0]`.
+- `SplitWeight` / `WeightRank` parse `"Family-Weight"` names against the canonical weight order (Thin → … → Black); shared by the font pickers and weight-table wiring.
+- `WeightHeaviest` (`"Heaviest"`) is a sentinel: `MainClass.FindFamilyWeight` resolves it to the family's max-rank weight at apply time.
+- `DestroyTmpAssets` runs in `StopMod` so runtime SDF atlases/materials don't pile up across hot reloads.
+
+### Per-part weight overrides
+
+`MainClass.ApplySelectedFont` resolves the selected entry, then `Settings.{StatLabel,StatValue,ComboLabel,ComboValue}Weight` against the same family, and calls `Overlay.SetFont(base, label, value, comboLabel, comboValue)` (nulls = base). Judgements/FPS always use the base font; the KeyViewer gets the base font only. The UI rows live in PageOverlay (`AddWeightRow` — self-rebuilding hosts registered on `RefreshFontWeightRows`, invoked by PageUI after an overlay font change; rows only exist when the family has >1 weight).
+
+### TmpShadow (`Util/TmpShadow.cs`)
+
+Legacy `Shadow`/`Outline` are mesh modifiers TMP ignores. `TmpShadow` drives the SDF shader's **underlay** on the text's per-instance `fontMaterial`:
+
+- `OffsetPx` keeps legacy `effectDistance` pixel semantics; converted to the shader's padding-relative units via `samplingPointSize / (atlasPadding × fontSize)` and clamped to [-1, 1] (max ≈ fontSize/10 px).
+- **`Apply()` must end with `UpdateMeshPadding()` + `SetVerticesDirty()` + `SetMaterialDirty()`** — TMP measures mesh quad padding from the material *before* a freshly assigned font asset's material has the underlay enabled, which clips the shadow to the glyph bounds.
+- Apply is **idempotent** (tracks last-applied enabled/color/offset/font/fontSize and no-ops when unchanged) because the regeneration above is expensive — never remove the guard.
+- Re-Apply is required after font or fontSize changes (the material instance is replaced); `Overlay.SetFont` re-applies every shadow via `GetComponentsInChildren<TmpShadow>(true)`.
+- The master pass at the end of `ApplySettings` pushes `OverlayShadowEnabled`/`OverlayShadowColor` to all shadows (combo label/count keep their own colors).
+
+### TMP gotchas (hard-won)
+
+- **Trailing whitespace is never measured** — plain spaces *and* U+00A0 NBSPs are excluded from preferred width (an NBSP fix was tried and failed in-game). Stat row separators put only the visible part in the label and realize the trailing-space run as `HorizontalLayoutGroup.spacing`, sized via `SpaceWidth()` = `GetPreferredValues("| |") − ("||")`.
+- **`MidlineLeft` ≠ vertical centering** — Midline is the geometric center of the rendered glyph bounds, so strings with/without descenders sit at different heights. Row texts use `TextAlignmentOptions.Left` (line-metric Middle).
+- Rich text (`<color>`, `<b>`) is on by default; coop acc/xacc rows use inline color tags.
+- `enableWordWrapping` is obsolete in this TMP — use `textWrappingMode = TextWrappingModes.NoWrap`.
+
+### Song title (`txtLevelName`)
+
+Legacy uGUI `Text` owned by the game. When `LevelNameUseOverlayFont` is on, `ApplyLevelNameTransform` swaps in the selected entry's legacy `Font` (original cached per scene), adds a Bismuth `Shadow` (offset divided by `LevelNameScale` since `localScale` shrinks the subtree), and suspends the game's own enabled Shadow/Outline components so effects don't stack — all restored on toggle-off / scene unload. Legacy dynamic fonts fall back to OS fonts for missing glyphs (e.g. kana in custom titles).
+
+---
+
 ## Overlay UGUI hierarchy (`Overlay.cs`)
 
 ``` filetree
@@ -392,9 +447,14 @@ Canvas (ScreenSpaceOverlay, sortingOrder 999)
 ├── AttemptsContainer  — VLG, anchor (AttemptsX, AttemptsY), holds attempts row + full-attempts row
 └── ComboDisplay       — anchor (0.5, 0.87) + Y offset from settings
     ├── ComboLabelWrapper  (ignoreLayout=true, positioned by _comboLabelWrapper.anchoredPosition)
-    │   └── ComboLabel  (Text — the "Perfect Combo" line)
-    └── ComboValue      (Text — the integer counter)
+    │   └── ComboLabel  (TextMeshProUGUI — the "Perfect Combo" line)
+    └── ComboValue      (TextMeshProUGUI — the integer counter)
+
+FpsCanvas (separate ScreenSpaceOverlay canvas, sortingOrder 1000)
+└── FpsDisplay (TextMeshProUGUI, bottom-right)
 ```
+
+All HUD text is `TextMeshProUGUI`; every text carries a `TmpShadow` component (see Fonts section).
 
 ### Key private fields
 
@@ -408,10 +468,12 @@ Canvas (ScreenSpaceOverlay, sortingOrder 999)
 | `_comboLabelWrapper` | `RectTransform` | `ignoreLayout=true` wrapper; `anchoredPosition.y = ComboLabelY` |
 | `_levelNameOrigPos` | `Vector2?` | First-seen `anchoredPosition` of `txtLevelName.rectTransform`; reset on scene unload |
 | `_levelNameOrigFontSize` | `int?` | First-seen `fontSize` of `txtLevelName`; restored when the previous fontSize-based scale path is detected on disk |
-| `_comboLabelShadow` / `_comboValueShadow` | `Shadow` | Cached refs to the combo label / count drop-shadow components; written every `ApplySettings` |
-| `ShadowBaseOffset` | `const float = 2f` | Per-text drop-shadow base offset (matches `AddShadow`'s `effectDistance = (2, -2)`); stat rows / timing scale / judgement texts each scale this by their own size slider |
-| `RowBaseFontSize` | `const int = 30` | Base font size of every stat row / timing scale / judgement text; multiplied by the relevant size slider |
-| `ComboLabelBaseFontSize` | `const int = 30` | Base size multiplied by `ComboLabelSize × ComboDisplaySize` |
+| `_levelNameFont` / `_levelNameOrigFont` | `Font` | Selected overlay entry's legacy Font (set by `SetLevelNameFont`) / per-scene cache of the game's original |
+| `_levelNameShadow` / `_levelNameGameEffects` | `Shadow` / `Shadow[]` | Bismuth drop shadow on the title / the game's own enabled Shadow+Outline, suspended while ours shows; per-scene |
+| `_comboLabelShadow` / `_comboValueShadow` | `TmpShadow` | Cached refs to the combo label / count shadow components; written every `ApplySettings` |
+| `ShadowBaseOffset` | `const float = 2f` | Per-text drop-shadow base offset px; stat rows / timing scale / judgement texts each scale this by their own size slider |
+| `RowBaseFontSize` | `const int = 27` | Base font size of every stat row / timing scale / judgement text; multiplied by the relevant size slider (attempts rows are fixed 18, FPS 22) |
+| `ComboLabelBaseFontSize` | `const int = 24` | Base size multiplied by `ComboLabelSize × ComboDisplaySize` |
 | `ComboValueBaseFontSize` | `const int = 80` | Base size multiplied by `ComboCountSize × ComboDisplaySize` |
 
 ---
@@ -426,9 +488,11 @@ Canvas (ScreenSpaceOverlay, sortingOrder 999)
 | `OnSceneUnloaded()` | `SceneManager.sceneUnloaded` | `inLevel = false`; `RDC.noHud = false`; `_levelNameOrigPos = null` |
 | `ShowEmpty()` | After each attempt | Resets displayed values to `--` / `0`; attempts color stays white |
 | `UpdateDisplay(acc, xacc, margin)` | `AddHitPatch` (every tile hit) | Updates acc/xacc colors; combo logic; judgement counts |
-| `ApplySettings(settings)` | Settings change callback | Re-applies all positions, scales, active states |
+| `ApplySettings(settings)` | Settings change callback | Re-applies all positions, scales, active states; recomposes stat labels (`ApplySeparators`); master shadow pass; ends with `LayoutRebuilder.ForceRebuildLayoutImmediate` on all four containers so edits reflow instantly |
+| `SetFont(font, label, value, comboLabel, comboValue)` | `MainClass.ApplySelectedFont` | Routes TMP font assets to stat labels/values and combo label/count (nulls = base); judgements/FPS use base; re-applies every `TmpShadow` (font change replaces materials) |
+| `SetLevelNameFont(font)` | `MainClass.ApplySelectedFont` | Stores the legacy `Font` for the song title and re-runs `ApplyLevelNameTransform` |
 | `ShowOrHideElements()` | Scene change / settings change | Toggles game-native UI visibility (noFail, difficulty, autoplay, song title, error meter) |
-| `ApplyLevelNameTransform()` | `ShowOrHideElements()` + `LevelNameTextRestorePatch` | Applies `LevelNameScale` and additive `LevelNameY` offset to `txtLevelName.rectTransform` |
+| `ApplyLevelNameTransform()` | `ShowOrHideElements()` + `LevelNameTextRestorePatch` | Applies `LevelNameScale` and additive `LevelNameY` to `txtLevelName.rectTransform`; swaps font + Bismuth shadow when `LevelNameUseOverlayFont` (see Fonts section) |
 
 ### Canvas show condition (checked every `Update`)
 
@@ -486,7 +550,7 @@ The KeyViewer is created once per session as a `DontDestroyOnLoad` `GameObject` 
 | `ApplySettings(settings)` | `MainClass.OnGUI` → `onChanged` callback | Toggles canvas active, lazy-builds layout if first true, re-positions/re-scales hand+foot panels from preset, calls `ApplyColors` (pushes `BgIdle`/`BorderIdle` + text colors to every live cell) |
 | `Rebuild(settings)` | `MainClass.OnGUI` → `onKeyViewerRebuild` callback (fires when `_needsKvRebuild`) | `ClearLayout` + `BuildLayout` + active toggle. Used for structural edits (key width, border radius, border width, gap, row keys, etc.) |
 | `ResetCounts()` | `MainClass.OnGUI` → `onKeyViewerReset` callback ("Reset Counters" button) | Zeros every per-preset `_counts` dict, empties `_hitTimes`, zeros every visible Count/Value text, resets `_lastKps`/`_lastTotalPerPreset` |
-| `SetFont(font)` | `MainClass.ApplySelectedFont` | Pushes the new font to every live cell's Name/Count text and stat cell text |
+| `SetFont(font)` | `MainClass.ApplySelectedFont` | Pushes the new `TMP_FontAsset` to every live cell's Name/Count text and stat cell text |
 | `SaveCounts()` | `MainClass.OnSaveGUI` (UMM "Save") and `MainClass.StopMod` | Writes `keycounts.txt` (one tab-separated `presetName\tkeycode\tcount` per line). No-op if no active preset has `PersistCounts` |
 | `LoadCounts()` | `Create` only (when `NeedsPersist`) | Parses `keycounts.txt` into `_counts`. Counts re-populate visible cells when those cells get built/rebuilt |
 | `OnDestroy()` | Unity, when `MainClass.StopMod` calls `Destroy(gameObject)` | Clears `Instance` so a later mod-enable cycle doesn't see the orphaned reference |
@@ -507,7 +571,7 @@ canvas.active = !HideAllUI
 
 ### Per-frame Update flow (`KeyViewer.Rain.cs`)
 
-The MonoBehaviour `Update` runs every frame regardless of canvas active state (Unity calls Update on the GameObject; the canvas being inactive only suppresses rendering, not script execution). The flow:
+The MonoBehaviour `Update` runs every frame regardless of canvas active state (Unity calls Update on the GameObject; the canvas being inactive only suppresses rendering, not script execution). The key polling lives in `PollKeys`, wrapped in `KeyLimiter.RawReadExempt = true` (try/finally) so the viewer keeps observing keys while the menu's input block is active. The flow:
 
 1. For each registered key in `_keys`: query `Input.GetKeyDown` / `Input.GetKeyUp`.
 2. **Down** — enqueue `realtimeSinceStartup` into `_hitTimes` (unless ghost), bump `_counts[preset.Name][key]` for each cell rendering this key, swap each cell's `Bg.color` → `BgHeld`, `Bg.BorderColor` → `BorderHeld`, `Name.color` → `TxtHeld`, `Count.color/text` → `CountHeld` / new count; update each preset's `Total` if any cells own one; spawn rain if the row's rain is enabled.
@@ -611,7 +675,10 @@ The shadow body's rect height is `bodyH + ShadowSize` (with sharp-top) or `bodyH
 | `scrPlanet.MoveToNextFloor` | Postfix | Hides error meter (`HideAllUI` or `HideHitmeter`) |
 | `scrController.paused` (setter) | Postfix | Hides error meter (`HideAllUI` or `HideHitmeter`) |
 | `OttoButtonController.Update` | Postfix | Hides Otto debug button (`HideAllUI`) |
-| `RDInput.GetMain(int)` | Postfix | Key Limiter — clamps press count to allowed-key count when state=Down; zeroes it entirely while the Bismuth menu is open (`BlockInputsWhileMenuOpen`) |
+| `RDInput.GetMain(ButtonState)` | Postfix | Key Limiter — clamps press count to allowed-key count when state=WentDown; zeroes it entirely while the Bismuth menu is open |
+| `RDInput.WentDown(KeyCode)` / `RDInput.IsDown(KeyCode)` | Postfix | Menu input block — raw shortcut-key reads return false while the menu is open |
+| `RDInput.GetState(InputAction, ButtonState)` | Postfix | Menu input block — Rewired action reads return false while the menu is open |
+| `UnityEngine.Input.GetKeyDown(KeyCode)` | Postfix | Menu input block — direct polls (menu number-nav) return false while open, except KeyCode.B and `RawReadExempt` reads. Applied separately via `TryPatchRawInput` |
 | `scrMistakesManager.AddHit(HitMargin)` | Prefix | Key Limiter — suppresses hit if no allowed key currently held, or unconditionally while the menu is open |
 
 ### Optimizations (`Optimizations.cs`)
@@ -620,61 +687,15 @@ Independent file with Harmony patches gated on `Opt*` settings: `scrConductor.Up
 
 ---
 
-## SettingsGui patterns
+## Settings UI pages (`UI/Pages/`)
 
-| Helper | Signature | Purpose |
-| ------ | --------- | ------- |
-| `W(px)` | `GUILayoutOption` | `GUILayout.Width(px × _uiScale)` |
-| `WMax(px)` | `GUILayoutOption` | `GUILayout.MaxWidth(px × _uiScale)` |
-| `Indent(action, space=20f)` | `void` | `BeginHorizontal → Space(space) → action() → EndHorizontal`. Captured locals can't be `ref` — set a local bool inside and copy out afterwards |
-| `SliderRow(label, out result, value, min, max, indent=20f, fmt="F2", suffix="")` | `void` | Thin shim that delegates to `SettingsInput.Slider`. Use the new API in fresh code |
-| `DeferredText(canonical, width, out committed)` | `bool` | Thin shim that delegates to `SettingsInput.DeferredText` |
-| `DrawGradientEditor(key, gradient, ref changed)` | `void` | Full gradient editor (solid toggle, perfect color, per-stop RGB) |
-| `DrawPositionButtons(current, out result)` | `bool` | L/R buttons for `OverlayPosition` (left button disabled when already Left, vice versa) |
+All settings interaction is UGUI (the IMGUI SettingsGui/SettingsInput files were deleted June 2026 after the port). Conventions:
 
-Sections nested inside the Overlay section use `indent=40f` in `SliderRow` to appear visually indented below their section headers (which are already at the overlay's 20px indent).
-
-`_uiScale = GUI.matrix.m00` is read at the start of every `Draw()` call.
-
-`_noWrapLabel` is a cached `GUIStyle` with `wordWrap = false`; initialized lazily and passed to every `GUILayout.Label` call to prevent wrapping at any scale.
-
-### SettingsInput (`Settings/SettingsInput.cs`)
-
-Shared input widgets owning per-frame counter + deferred-edit buffers + per-control undo baselines. Driven by the SettingsGui Draw loop:
-
-- `BeginFrame(uiScale, noWrapLabel)` — reset counter, refresh cached scale/style. Called at the start of every `SettingsGui.Draw`.
-- `ResetState()` — wipe edit buffers and undo baselines. Called whenever `_editingPreset` / `_editingIsFoot` changes (navigation between main menu / hand presets / foot presets) so stale state doesn't carry across views.
-- `Slider(label, ref float value, min, max, indent, fmt, suffix, step=0)` — renders label + editable text + slider + inline undo button (`↶`). Returns `true` if `value` changed.
-- `Slider(label, ref int value, …)` — int overload that snaps to `step=1`.
-- `DeferredText(canonical, width, out committed)` — text field whose edits stay buffered (and visible) while focused; commits only on focus loss or Enter. Used by every hex color input.
-
-Control IDs are `"ctrl" + N` where `N` is a per-frame counter. As long as the UI tree doesn't reorder mid-edit, IDs stay stable across frames and undo/buffer state survives. Slider step is applied both to slider drags and text commits.
-
-### Auto-rebuild of the key viewer
-
-`_needsKvRebuild` is a static flag set anywhere a _structural_ edit in the preset edit page happens — key width, border radius, border width, gap, row keys text, row height, special-key insert buttons, show-rain toggle, rain-color custom/reset, add/remove row. After `DrawKvPreset` returns, the Draw loop fires `onKeyViewerRebuild` once if the flag is set, then clears it. Non-structural edits (X/Y/Scale, colors, rain animation params) route through `onChanged → ApplySettings` only, so dragging RGB sliders doesn't trigger a full layout rebuild.
-
-Border radius and border width _don't actually_ require a structural rebuild — `RoundedRectGraphic` would re-tessellate on property assignment — but they're routed through the rebuild path for parity with the existing key-width pattern. If perf becomes a concern this could be downgraded to a per-cell push.
-
-### SettingsGui section order
-
-Overlay (Scale → Progress → Accuracy / X-Accuracy → BPM / Tile BPM → Attempts → Timing Scale → Judgements) → Combo Display → Hide UI → Tweaks → Key Limiter → Chatter Blocker → Key Viewer (header has top-level "Enabled" toggle binding `ShowKeyViewer`; then Hand list + Foot list, each with their own Enabled toggle and Edit/Delete/Add) → Optimizations → Font → Misc.
-
-The **Misc** section displays read-only stats — currently just "RAM savings (last scene load): ±X.XX MB", populated from `MainClass.LastUnloadSavingsBytes` (set asynchronously when `Resources.UnloadUnusedAssets()` completes in `OnSceneUnloaded`, measured via `Profiler.GetTotalAllocatedMemoryLong()`). Shows `----MB` until the first unload completes.
-
-### Preset edit view
-
-`_editingPreset >= 0` short-circuits the normal `Draw` and renders only the preset editor for `(_editingIsFoot ? KvFootPresets : KvHandPresets)[_editingPreset]`. Sections inside, in order: Name, Reset Counters button, Main Settings (Key Width, Gap, X, Y, Scale, Persist Counts), Edit Rows (per-row collapsible block: cell grid + Listen toggle, Height, Show Rain, Rain Color editor, `× Delete Row` button at the bottom), Key Rain (Track Length, Fade Start, Speed, Width Step, Shadow Size, Shadow Color), **Ghost Keys** (hand only — toggle + per-slot button grid + Ghost Rain Color editor), Background (Released / Pressed colors), **Border** (Radius slider, Width slider, Released / Pressed border color editors), Label Text (`Visible` toggle, colors, font size), Count Text (same shape) color editors. No Apply button — rebuild is automatic via `_needsKvRebuild`.
-
-**Cell grid widget** (`DrawCellGrid`): each cell renders as a clickable button (`▼` prefix when expanded). Selecting a cell opens an inline panel with reorder (`◀ ▶`), Delete, **Change Key** (rebinds this cell to a different key via the shared `ListenForKey()` capture; shows "Listening…" while active; hidden for KPS / Total tokens), Label override (text), and a Width slider that mirrors the symmetric cell. A `● Listen` / `■ Stop` toggle button leading the row puts the row into key-capture mode — pressing a not-yet-registered key adds it as a new cell, pressing an already-registered key removes its cell. `+ KPS` / `+ Total` insert the corresponding special tokens. Captured by `ListenForKey()` which combines `Event.KeyDown` with an explicit `Input.GetKeyDown` poll for modifier keys (macOS doesn't surface modifier-only presses as IMGUI key events).
-
-**Per-row collapse**: `_kvRowOpen[idx]` (parallel to `_kvRowRainOpen[idx]`) gates everything below the row header. Collapsed rows show only the `► Row N` toggle. New rows default to open.
-
-The Key Limiter section reuses the same grid + Listen widget against `Settings.KeyLimiterCustomKeys` (serialized as a space-joined token string; no per-cell label/width).
-
-### Hide UI conditional rendering
-
-All Hide UI sub-options (everything except Hide All) are only rendered when `HideAllUI` is `false`. When `HideAllUI` is on there is no point toggling them individually.
+- Pages are built once via `UICore.Tabs.AddTab(name, Build)` in `MainClass.TryEagerInit`; tab switching only toggles `SetActive`. Anything whose option set depends on runtime state needs an explicit refresh hook — e.g. `PageOverlay.RefreshFontWeightRows` (multicast `Action`, reset at the top of `PageOverlay.Build`, registered per row by `AddWeightRow`, invoked by PageUI's overlay-font selector after a family change).
+- `UICore.OnSettingsChanged` fans out to `overlay.ApplySettings` + `keyViewer.ApplySettings` + `KeyLimiter.Apply` (wired in `MainClass.TryEagerInit`). Structural KeyViewer edits additionally fire `UICore.OnKeyViewerRebuild` → `keyViewer.Rebuild`.
+- `KeyListener` (PageInput) is the shared key-capture MonoBehaviour for rebind / ghost keys / limiter chips: polls a watched-key list once per frame while `Active`, fires `OnKey(KeyCode)` once, wrapped in `KeyLimiter.RawReadExempt` so capture works while the menu's input block is engaged (capture only ever happens with the menu open).
+- The **Misc** page displays read-only stats — "RAM savings (last scene load)", populated from `MainClass.LastUnloadSavingsBytes` (measured around `Resources.UnloadUnusedAssets()` in `OnSceneUnloaded`).
+- Hide UI sub-options render only while `HideAllUI` is off.
 
 ---
 

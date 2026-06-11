@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Bismuth.UI.Pages
@@ -11,13 +12,34 @@ namespace Bismuth.UI.Pages
         {
             var s = UICore.Settings;
             var notify = UICore.OnSettingsChanged;
+            // Weight rows registered by AddWeightRow below; reset so panel rebuilds
+            // don't accumulate handlers for destroyed hosts.
+            RefreshFontWeightRows = null;
 
             UIBuilder.SectionHeader(content, "Overlay");
             UIBuilder.Collapsible(content, "Enable", s.ShowOverlay,
                 v => { s.ShowOverlay = v; notify?.Invoke(); }, null);
 
+            UIBuilder.Collapsible(content, "Text shadow", s.OverlayShadowEnabled,
+                v => { s.OverlayShadowEnabled = v; notify?.Invoke(); },
+                body =>
+                {
+                    if (s.OverlayShadowColor == null)
+                        s.OverlayShadowColor = new KvColor { R = 0f, G = 0f, B = 0f, A = 0.5f };
+                    var sc = s.OverlayShadowColor;
+                    UIBuilder.ColorPicker(body, "Color",
+                        new Color(sc.R, sc.G, sc.B, sc.A), true,
+                        c => { sc.R = c.r; sc.G = c.g; sc.B = c.b; sc.A = c.a; notify?.Invoke(); });
+                });
+
             UIBuilder.Spacer(content);
             UIBuilder.SectionHeader(content, "Stats");
+
+            UIBuilder.TextInput(content, "Separator text", s.StatSeparator,
+                v => { s.StatSeparator = v; notify?.Invoke(); });
+
+            AddWeightRow(content, "Label weight", () => s.StatLabelWeight, v => s.StatLabelWeight = v);
+            AddWeightRow(content, "Value weight", () => s.StatValueWeight, v => s.StatValueWeight = v);
 
             UIBuilder.Collapsible(content, "Progress", s.ShowProgress,
                 v => { s.ShowProgress = v; notify?.Invoke(); },
@@ -134,6 +156,8 @@ namespace Bismuth.UI.Pages
             // Scale/offset always apply; visibility (HideLevelName) lives in Hide UI.
             UIBuilder.ExpandSection(content, "Song Title/Artist", body =>
             {
+                UIBuilder.Collapsible(body, "Use overlay font", s.LevelNameUseOverlayFont,
+                    v => { s.LevelNameUseOverlayFont = v; notify?.Invoke(); }, null);
                 UIBuilder.Slider(body, "Scale", s.LevelNameScale, 0.1f, 3f,
                     v => { s.LevelNameScale = v; notify?.Invoke(); }, "0.00");
                 UIBuilder.Slider(body, "Y offset", s.LevelNameY, -500f, 500f,
@@ -179,6 +203,7 @@ namespace Bismuth.UI.Pages
                     v => { s.ComboLabelY = v; notify?.Invoke(); }, "0", 1f);
                 UIBuilder.Slider(sub, "Size", s.ComboLabelSize, 0.25f, 3f,
                     v => { s.ComboLabelSize = v; notify?.Invoke(); }, "0.00");
+                AddWeightRow(sub, "Weight", () => s.ComboLabelWeight, v => s.ComboLabelWeight = v);
 
                 UIBuilder.ExpandSection(sub, "Shadow", shadow =>
                 {
@@ -200,6 +225,8 @@ namespace Bismuth.UI.Pages
             {
                 UIBuilder.Slider(sub, "Size", s.ComboCountSize, 0.25f, 3f,
                     v => { s.ComboCountSize = v; notify?.Invoke(); }, "0.00");
+                AddWeightRow(sub, "Weight", () => s.ComboValueWeight, v => s.ComboValueWeight = v,
+                    includeHeaviest: true);
 
                 UIBuilder.ExpandSection(sub, "Shadow", shadow =>
                 {
@@ -228,6 +255,85 @@ namespace Bismuth.UI.Pages
             });
 
             UIBuilder.GradientEditor(body, "Color", s.ComboGradient, () => notify?.Invoke());
+        }
+
+        // ── Per-part font weight overrides ───────────────────────────────────
+        // Each AddWeightRow call plants a self-rebuilding row whose option set tracks
+        // the overlay font family. Pages are built once, but the family can change
+        // from the UI tab — PageUI invokes RefreshFontWeightRows after a font change.
+        // The row only exists while the family has more than one weight.
+
+        internal static Action RefreshFontWeightRows;
+
+        private static void AddWeightRow(Transform parent, string label,
+            Func<string> get, Action<string> set, bool includeHeaviest = false)
+        {
+            var host = UIBuilder.Rect("Weight_" + label, parent);
+            var vlg = host.AddComponent<UnityEngine.UI.VerticalLayoutGroup>();
+            vlg.childControlWidth = true;
+            vlg.childControlHeight = true;
+            vlg.childForceExpandWidth = true;
+            vlg.childForceExpandHeight = false;
+            vlg.spacing = 2f;
+
+            Action rebuild = () =>
+            {
+                if (host == null) return;
+                for (int i = host.transform.childCount - 1; i >= 0; i--)
+                {
+                    var c = host.transform.GetChild(i);
+                    c.SetParent(null);
+                    UnityEngine.Object.Destroy(c.gameObject);
+                }
+                var weights = OverlayFamilyWeights(UICore.Settings);
+                if (weights.Count <= 1) return;
+                WeightDropdown(host.transform, label, weights, get(), set, includeHeaviest);
+            };
+            RefreshFontWeightRows += rebuild;
+            rebuild();
+        }
+
+        // Weights available in the currently selected overlay font's family,
+        // canonically sorted.
+        private static List<string> OverlayFamilyWeights(Settings s)
+        {
+            var result = new List<string>();
+            var fonts = UICore.AvailableFonts;
+            if (fonts == null || fonts.Count == 0) return result;
+
+            var current = FontLoader.Find(fonts, s.FontName) ?? fonts[0];
+            FontLoader.SplitWeight(current.Name, out string family, out _);
+            foreach (var e in fonts)
+            {
+                FontLoader.SplitWeight(e.Name, out string fam, out string w);
+                if (fam == family && !result.Contains(w)) result.Add(w);
+            }
+            result.Sort((a, b) => FontLoader.WeightRank(a).CompareTo(FontLoader.WeightRank(b)));
+            return result;
+        }
+
+        private static void WeightDropdown(Transform host, string label,
+            List<string> weights, string current, Action<string> set, bool includeHeaviest)
+        {
+            int fixedCount = includeHeaviest ? 2 : 1;
+            var options = new List<string>(weights.Count + fixedCount) { "Use UI Settings" };
+            if (includeHeaviest) options.Add("Heaviest");
+            options.AddRange(weights);
+
+            int idx = 0;
+            if (includeHeaviest && string.Equals(current, FontLoader.WeightHeaviest, StringComparison.OrdinalIgnoreCase))
+                idx = 1;
+            else
+                for (int i = 0; i < weights.Count; i++)
+                    if (string.Equals(weights[i], current, StringComparison.OrdinalIgnoreCase))
+                    { idx = i + fixedCount; break; }
+
+            UIBuilder.Dropdown(host, label, options, idx, i =>
+            {
+                set(i == 0 ? "" : includeHeaviest && i == 1 ? FontLoader.WeightHeaviest : weights[i - fixedCount]);
+                MainClass.ApplySelectedFont();
+                UICore.OnSettingsChanged?.Invoke();
+            });
         }
     }
 }

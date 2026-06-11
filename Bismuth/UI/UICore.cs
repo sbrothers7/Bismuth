@@ -74,10 +74,9 @@ namespace Bismuth.UI
 
         private static Font ResolveSavedFont()
         {
-            if (_availableFonts == null || string.IsNullOrEmpty(_settings.UiFontName)) return null;
-            for (int i = 0; i < _availableFonts.Count; i++)
-                if (_availableFonts[i].Name == _settings.UiFontName) return _availableFonts[i].Font;
-            return null;
+            var entry = FontLoader.Find(_availableFonts, _settings.UiFontName)
+                        ?? FontLoader.Find(_availableFonts, "Pretendard-Regular");
+            return entry?.Font;
         }
 
         // Tracks the scale at which the panel's sizeDelta + anchoredPosition currently make sense.

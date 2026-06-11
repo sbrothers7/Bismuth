@@ -184,7 +184,6 @@ namespace Bismuth
             {
                 if (playerCount > 1)
                 {
-                    accValue.supportRichText = true;
                     var sb = new System.Text.StringBuilder();
                     for (int i = 0; i < playerCount; i++)
                     {
@@ -212,7 +211,6 @@ namespace Bismuth
             {
                 if (playerCount > 1)
                 {
-                    xaccValue.supportRichText = true;
                     var sb = new System.Text.StringBuilder();
                     for (int i = 0; i < playerCount; i++)
                     {

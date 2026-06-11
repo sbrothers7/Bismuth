@@ -1,3 +1,4 @@
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -22,12 +23,12 @@ namespace Bismuth
 
             (progressRow,    progressLabel,    progressValue)    = MakeRow("Progress",    "Progress | ");
             (attemptsRow,    attemptsLabel,    attemptsValue)    = MakeRow("Attempts",    "Attempts: ");
-            attemptsLabel.fontSize = 20;
-            attemptsValue.fontSize = 20;
+            attemptsLabel.fontSize = 18;
+            attemptsValue.fontSize = 18;
             attemptsRow.transform.SetParent(attemptsContainer, false);
             (attemptsFullRow, attemptsFullLabel, attemptsFullValue) = MakeRow("AttemptsFull", "Full Attempts: ");
-            attemptsFullLabel.fontSize = 20;
-            attemptsFullValue.fontSize = 20;
+            attemptsFullLabel.fontSize = 18;
+            attemptsFullValue.fontSize = 18;
             attemptsFullRow.transform.SetParent(attemptsContainer, false);
             (accRow,         accLabel,         accValue)         = MakeRow("Acc",         "Accuracy | ");
             (xaccRow,        xaccLabel,        xaccValue)        = MakeRow("XAcc",        "XAccuracy | ");
@@ -153,9 +154,9 @@ namespace Bismuth
             return rect;
         }
 
-        private static GameObject MakeJudgementsRow(GameObject parent, out Text[] texts)
+        private static GameObject MakeJudgementsRow(GameObject parent, out TextMeshProUGUI[] texts)
         {
-            texts = new Text[DisplayedMargins.Length];
+            texts = new TextMeshProUGUI[DisplayedMargins.Length];
 
             for (int i = 0; i < DisplayedMargins.Length; i++)
             {
@@ -166,12 +167,12 @@ namespace Bismuth
                 csf.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
                 csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-                var t = go.AddComponent<Text>();
-                t.fontSize = 30;
+                var t = go.AddComponent<TextMeshProUGUI>();
+                t.fontSize = RowBaseFontSize;
                 t.color = Color.white;
-                t.alignment = TextAnchor.MiddleCenter;
-                t.horizontalOverflow = HorizontalWrapMode.Overflow;
-                t.verticalOverflow = VerticalWrapMode.Overflow;
+                t.alignment = TextAlignmentOptions.Center;
+                t.textWrappingMode = TextWrappingModes.NoWrap;
+                t.overflowMode = TextOverflowModes.Overflow;
                 t.text = "0";
                 AddShadow(go);
                 texts[i] = t;
@@ -180,7 +181,7 @@ namespace Bismuth
             return parent;
         }
 
-        private static RectTransform MakeComboDisplay(GameObject canvasGo, out Text label, out Text value, out RectTransform labelWrapper)
+        private static RectTransform MakeComboDisplay(GameObject canvasGo, out TextMeshProUGUI label, out TextMeshProUGUI value, out RectTransform labelWrapper)
         {
             var go = new GameObject("ComboDisplay", typeof(RectTransform));
             go.transform.SetParent(canvasGo.transform, false);
@@ -213,14 +214,14 @@ namespace Bismuth
 
             if (Instance != null)
             {
-                Instance._comboValueShadow = value.GetComponent<Shadow>();
-                Instance._comboLabelShadow = label.GetComponent<Shadow>();
+                Instance._comboValueShadow = value.GetComponent<TmpShadow>();
+                Instance._comboLabelShadow = label.GetComponent<TmpShadow>();
             }
 
             return rect;
         }
 
-        private static Text MakeComboText(GameObject parent, string name, int fontSize)
+        private static TextMeshProUGUI MakeComboText(GameObject parent, string name, int fontSize)
         {
             var go = new GameObject(name, typeof(RectTransform));
             go.transform.SetParent(parent.transform, false);
@@ -229,17 +230,17 @@ namespace Bismuth
             csf.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
             csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-            var t = go.AddComponent<Text>();
+            var t = go.AddComponent<TextMeshProUGUI>();
             t.fontSize = fontSize;
             t.color = Color.white;
-            t.alignment = TextAnchor.MiddleCenter;
-            t.horizontalOverflow = HorizontalWrapMode.Overflow;
-            t.verticalOverflow = VerticalWrapMode.Overflow;
+            t.alignment = TextAlignmentOptions.Center;
+            t.textWrappingMode = TextWrappingModes.NoWrap;
+            t.overflowMode = TextOverflowModes.Overflow;
             AddShadow(go);
             return t;
         }
 
-        private static (GameObject row, Text label, Text value) MakeRow(string name, string labelText)
+        private static (GameObject row, TextMeshProUGUI label, TextMeshProUGUI value) MakeRow(string name, string labelText)
         {
             var rowGo = new GameObject(name + "Row", typeof(RectTransform));
 
@@ -252,14 +253,16 @@ namespace Bismuth
             hlg.childForceExpandWidth = false;
             hlg.spacing = 0f;
 
-            Text labelT = MakeRowText(rowGo, name + "Label");
+            // Placeholder only — ApplySettings recomposes every row label (base text +
+            // separator) and converts trailing separator spaces into HLG spacing.
+            TextMeshProUGUI labelT = MakeRowText(rowGo, name + "Label");
             labelT.text = labelText;
-            Text valueT = MakeRowText(rowGo, name + "Value");
+            TextMeshProUGUI valueT = MakeRowText(rowGo, name + "Value");
 
             return (rowGo, labelT, valueT);
         }
 
-        private static Text MakeRowText(GameObject parent, string name)
+        private static TextMeshProUGUI MakeRowText(GameObject parent, string name)
         {
             var go = new GameObject(name, typeof(RectTransform));
             go.transform.SetParent(parent.transform, false);
@@ -270,16 +273,20 @@ namespace Bismuth
             var csf = go.AddComponent<ContentSizeFitter>();
             csf.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-            var t = go.AddComponent<Text>();
-            t.fontSize = 30;
+            var t = go.AddComponent<TextMeshProUGUI>();
+            t.fontSize = RowBaseFontSize;
             t.color = Color.white;
-            t.horizontalOverflow = HorizontalWrapMode.Overflow;
-            t.verticalOverflow = VerticalWrapMode.Overflow;
+            // Vertical Middle (line metrics), NOT MidlineLeft: Midline is the geometric
+            // center of the rendered glyph bounds, so "TimingScale -" (descender on g)
+            // and "100%" (none) would sit at different heights.
+            t.alignment = TextAlignmentOptions.Left;
+            t.textWrappingMode = TextWrappingModes.NoWrap;
+            t.overflowMode = TextOverflowModes.Overflow;
             AddShadow(go);
             return t;
         }
 
-        private (GameObject container, Text text) MakeFpsDisplay()
+        private (GameObject container, TextMeshProUGUI text) MakeFpsDisplay()
         {
             var canvasGo = new GameObject("FpsCanvas");
             canvasGo.transform.SetParent(transform);
@@ -300,12 +307,12 @@ namespace Bismuth
             csf.horizontalFit = ContentSizeFitter.FitMode.PreferredSize;
             csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-            var t = go.AddComponent<Text>();
-            t.fontSize = 24;
+            var t = go.AddComponent<TextMeshProUGUI>();
+            t.fontSize = 22;
             t.color = Color.white;
-            t.alignment = TextAnchor.LowerRight;
-            t.horizontalOverflow = HorizontalWrapMode.Overflow;
-            t.verticalOverflow = VerticalWrapMode.Overflow;
+            t.alignment = TextAlignmentOptions.BottomRight;
+            t.textWrappingMode = TextWrappingModes.NoWrap;
+            t.overflowMode = TextOverflowModes.Overflow;
             t.text = "-- FPS";
             AddShadow(go);
 

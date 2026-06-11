@@ -273,6 +273,17 @@ namespace Bismuth
             return n;
         }
 
+        // While the menu is open the game must not see keyboard input. The game reads
+        // the keyboard through three independent RDInput entry points, each of which
+        // needs its own gate:
+        //   GetMain(ButtonState)            — press counting → planet hits
+        //   WentDown/IsDown(KeyCode)        — raw shortcut keys (R restart, arrows, …)
+        //   GetState(InputAction, state)    — Rewired actions (restartPress, backPress, …)
+        // The settings panel itself polls UnityEngine.Input directly (Ctrl+B, text
+        // fields via the EventSystem), so it stays responsive while all of these
+        // return "nothing pressed".
+        private static bool BlockInputs => _blockWhileOpen && UICore.IsOpen;
+
         // ── RDInput.GetMain — platform-agnostic aggregator ───────────────────
         [HarmonyPatch]
         private static class GetMainPatch
@@ -283,15 +294,89 @@ namespace Bismuth
                 return t != null ? AccessTools.Method(t, "GetMain") : null;
             }
 
-            public static void Postfix(int __0, ref int __result)
+            public static void Postfix(ButtonState __0, ref int __result)
             {
-                // While the Bismuth menu is open, no gameplay inputs register. Acts on the
-                // main port only (__0==0); leaves multiplayer slots untouched.
-                if (_blockWhileOpen && __0 == 0 && UICore.IsOpen) { __result = 0; return; }
+                if (BlockInputs && __0 == ButtonState.WentDown) { __result = 0; return; }
                 // Skip when re-entering (GetStateKeys calls GetMain internally)
-                if ((!_active && !_chatterActive && _ghosts.Count == 0) || __result == 0 || __0 != 0 || _inCount) return;
+                if ((!_active && !_chatterActive && _ghosts.Count == 0) || __result == 0 || __0 != ButtonState.WentDown || _inCount) return;
                 __result = Mathf.Min(__result, CountAllowedInPressedKeys());
             }
+        }
+
+        // ── RDInput.WentDown / IsDown — raw keyboard shortcut reads ──────────
+        [HarmonyPatch]
+        private static class WentDownBlockPatch
+        {
+            static MethodBase TargetMethod()
+            {
+                var t = AccessTools.TypeByName("RDInput");
+                return t != null ? AccessTools.Method(t, "WentDown") : null;
+            }
+
+            public static void Postfix(ref bool __result)
+            {
+                if (BlockInputs) __result = false;
+            }
+        }
+
+        [HarmonyPatch]
+        private static class IsDownBlockPatch
+        {
+            static MethodBase TargetMethod()
+            {
+                var t = AccessTools.TypeByName("RDInput");
+                return t != null ? AccessTools.Method(t, "IsDown") : null;
+            }
+
+            public static void Postfix(ref bool __result)
+            {
+                if (BlockInputs) __result = false;
+            }
+        }
+
+        // ── RDInput.GetState — Rewired action reads (restart/back/confirm/…) ─
+        [HarmonyPatch]
+        private static class GetStateBlockPatch
+        {
+            static MethodBase TargetMethod()
+            {
+                var t = AccessTools.TypeByName("RDInput");
+                return t != null ? AccessTools.Method(t, "GetState") : null;
+            }
+
+            public static void Postfix(ref bool __result)
+            {
+                if (BlockInputs) __result = false;
+            }
+        }
+
+        // ── UnityEngine.Input.GetKeyDown — direct polls below RDInput ────────
+        // Menu scenes (scnLevelSelect & co.) read number-key navigation straight off
+        // Input.GetKeyDown, bypassing every RDInput wrapper. GetKeyDown is an extern
+        // icall, so this is patched outside PatchAll: if the native detour fails on
+        // some platform only this layer is lost instead of aborting every patch.
+        internal static void TryPatchRawInput(Harmony harmony)
+        {
+            try
+            {
+                var m = AccessTools.Method(typeof(Input), "GetKeyDown", new[] { typeof(KeyCode) });
+                harmony.Patch(m, postfix: new HarmonyMethod(typeof(KeyLimiter), nameof(GetKeyDownPostfix)));
+            }
+            catch (System.Exception e)
+            {
+                BismuthLog.Log("Input.GetKeyDown patch failed (menu keys won't be blocked): " + e.Message);
+            }
+        }
+
+        // Bismuth's own pollers (rebind/limiter KeyListeners, KV rain & counting) must
+        // keep seeing keys while the menu is open — they set this around their reads.
+        // Unity's main loop is single-threaded, so a plain flag is safe.
+        internal static bool RawReadExempt;
+
+        // KeyCode.B stays readable so Ctrl+B still closes the panel.
+        private static void GetKeyDownPostfix(KeyCode key, ref bool __result)
+        {
+            if (__result && !RawReadExempt && key != KeyCode.B && BlockInputs) __result = false;
         }
 
         // ── Fallback: block accuracy recording for non-allowed key presses ────
@@ -301,7 +386,7 @@ namespace Bismuth
             public static bool Prefix()
             {
                 // While the menu is open, no hits register — same gate as the GetMain block.
-                if (_blockWhileOpen && UICore.IsOpen) return false;
+                if (BlockInputs) return false;
                 if (!_active) return true;
                 if (!Input.anyKeyDown) return true;
                 // GetKey (not GetKeyDown) tolerates the 1-frame async delay here

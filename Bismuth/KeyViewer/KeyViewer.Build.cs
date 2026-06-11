@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -9,8 +10,9 @@ namespace Bismuth
     {
         private void BuildLayout()
         {
-            if (_font == null) _font = Font.CreateDynamicFontFromOSFont(
-                new[] { "Arial", "Helvetica Neue", "Helvetica" }, 14);
+            // ApplySelectedFont normally runs right after Create; the game's default TMP
+            // font covers the window where no bundled font has been applied yet.
+            if (_font == null) _font = TMP_Settings.defaultFontAsset;
 
             _nextRowIdx = 0;
             if (_settings.ShowHandViewer && _settings.Hand != null)
@@ -291,10 +293,10 @@ namespace Bismuth
             Vector2 countMin = new Vector2(0f, 0f);
             Vector2 countMax = preset.ShowLabel ? new Vector2(1f, 0.5f) : new Vector2(1f, 1f);
 
-            Text nameText  = preset.ShowLabel
+            TextMeshProUGUI nameText  = preset.ShowLabel
                 ? MakeLabel(go.transform, label, labelMin, labelMax, preset.LabelSize, false, preset.TxtIdle.ToColor())
                 : null;
-            Text countText = preset.ShowCount
+            TextMeshProUGUI countText = preset.ShowCount
                 ? MakeLabel(go.transform, presetCounts[key].ToString(), countMin, countMax, preset.CountSize, true, preset.CountIdle.ToColor())
                 : null;
 
@@ -328,7 +330,7 @@ namespace Bismuth
             return new StatCellRefs { Bg = img, Name = nameText, Value = valueText, Preset = preset };
         }
 
-        private Text MakeLabel(Transform parent, string text, Vector2 anchorMin, Vector2 anchorMax,
+        private TextMeshProUGUI MakeLabel(Transform parent, string text, Vector2 anchorMin, Vector2 anchorMax,
             int fontSize, bool bold, Color color)
         {
             var go = new GameObject("Txt");
@@ -337,15 +339,15 @@ namespace Bismuth
             rt.anchorMin = anchorMin;
             rt.anchorMax = anchorMax;
             rt.offsetMin = rt.offsetMax = Vector2.zero;
-            var t = go.AddComponent<Text>();
+            var t = go.AddComponent<TextMeshProUGUI>();
             t.text = text;
             t.font = _font;
             t.fontSize = fontSize;
-            t.fontStyle = bold ? FontStyle.Bold : FontStyle.Normal;
-            t.alignment = TextAnchor.MiddleCenter;
+            t.fontStyle = bold ? FontStyles.Bold : FontStyles.Normal;
+            t.alignment = TextAlignmentOptions.Center;
             t.color = color;
-            t.horizontalOverflow = HorizontalWrapMode.Overflow;
-            t.verticalOverflow = VerticalWrapMode.Overflow;
+            t.textWrappingMode = TextWrappingModes.NoWrap;
+            t.overflowMode = TextOverflowModes.Overflow;
             return t;
         }
     }

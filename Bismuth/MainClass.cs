@@ -81,6 +81,7 @@ namespace Bismuth
             BismuthLog.Init();
             harmony = new Harmony(modEntry.Info.Id);
             harmony.PatchAll(Assembly.GetExecutingAssembly());
+            KeyLimiter.TryPatchRawInput(harmony);
 
             SceneManager.sceneUnloaded += OnSceneUnloaded;
             SceneManager.sceneLoaded += OnSceneLoaded;
@@ -174,17 +175,43 @@ namespace Bismuth
         {
             if (overlay == null || availableFonts.Count == 0) return;
 
-            string targetName = string.IsNullOrEmpty(Settings.FontName)
-                ? availableFonts[0].Name
-                : Settings.FontName;
+            FontLoader.FontEntry target =
+                FontLoader.Find(availableFonts, Settings.FontName)
+                ?? FontLoader.Find(availableFonts, "Pretendard-Regular")
+                ?? availableFonts[0];
 
-            FontLoader.FontEntry target = null;
-            foreach (FontLoader.FontEntry e in availableFonts)
-                if (e.Name == targetName) { target = e; break; }
-            if (target == null) target = availableFonts[0];
+            // Optional per-part weights for stat rows / combo, drawn from the same family.
+            FontLoader.SplitWeight(target.Name, out string family, out _);
+            var labelEntry      = FindFamilyWeight(family, Settings.StatLabelWeight);
+            var valueEntry      = FindFamilyWeight(family, Settings.StatValueWeight);
+            var comboLabelEntry = FindFamilyWeight(family, Settings.ComboLabelWeight);
+            var comboValueEntry = FindFamilyWeight(family, Settings.ComboValueWeight);
 
-            overlay.SetFont(target.Font);
-            keyViewer?.SetFont(target.Font);
+            overlay.SetFont(target.TmpFont, labelEntry?.TmpFont, valueEntry?.TmpFont,
+                comboLabelEntry?.TmpFont, comboValueEntry?.TmpFont);
+            overlay.SetLevelNameFont(target.Font);
+            keyViewer?.SetFont(target.TmpFont);
+        }
+
+        private static FontLoader.FontEntry FindFamilyWeight(string family, string weight)
+        {
+            if (string.IsNullOrEmpty(weight)) return null;
+            bool heaviest = string.Equals(weight, FontLoader.WeightHeaviest, StringComparison.OrdinalIgnoreCase);
+            FontLoader.FontEntry best = null;
+            int bestRank = -1;
+            foreach (var e in availableFonts)
+            {
+                FontLoader.SplitWeight(e.Name, out string fam, out string w);
+                if (fam != family) continue;
+                if (!heaviest)
+                {
+                    if (string.Equals(w, weight, StringComparison.OrdinalIgnoreCase)) return e;
+                    continue;
+                }
+                int rank = FontLoader.WeightRank(w);
+                if (rank > bestRank) { bestRank = rank; best = e; }
+            }
+            return best;
         }
 
         private static void StopMod(UnityModManager.ModEntry modEntry)
@@ -204,6 +231,9 @@ namespace Bismuth
                 UnityEngine.Object.Destroy(keyViewer.gameObject);
                 keyViewer = null;
             }
+            // Runtime-created TMP assets (SDF atlases + materials) would otherwise pile up
+            // across hot reloads — Mono keeps the old assembly alive.
+            FontLoader.DestroyTmpAssets(availableFonts);
             UICore.Dispose();
         }
     }
