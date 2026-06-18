@@ -342,11 +342,11 @@ namespace Bismuth
             rt.offsetMin = rt.offsetMax = Vector2.zero;
             var t = go.AddComponent<TextMeshProUGUI>();
             t.text = text;
-            // `bold` marks count/value cells: they take the count font, and faux Bold
-            // only when no explicit count weight is chosen.
+            // `bold` marks count/value cells: they take the count font. Weight comes from
+            // that font (the "Count weight" dropdown), not faux Bold.
             t.font = bold ? _countFont : _labelFont;
             t.fontSize = fontSize;
-            t.fontStyle = bold && !_countFontExplicit ? FontStyles.Bold : FontStyles.Normal;
+            t.fontStyle = FontStyles.Normal;
             t.alignment = TextAlignmentOptions.Center;
             t.color = color;
             t.textWrappingMode = TextWrappingModes.NoWrap;

@@ -90,6 +90,7 @@
         <Compile Include="Patches\Patches.cs" />
         <Compile Include="Patches\Optimizations.cs" />
         <Compile Include="Util\AttemptsStore.cs" />
+        <Compile Include="Util\LevelKey.cs" />
         <Compile Include="Util\BismuthLog.cs" />
         <Compile Include="Util\FontLoader.cs" />
         <Compile Include="Util\TmpShadow.cs" />

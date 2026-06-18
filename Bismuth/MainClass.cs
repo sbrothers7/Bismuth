@@ -202,8 +202,7 @@ namespace Bismuth
                 comboLabelEntry?.TmpFont, comboValueEntry?.TmpFont);
             var kvLabelEntry   = FindFamilyWeight(family, Settings.KeyViewerLabelWeight);
             var kvCountEntry   = FindFamilyWeight(family, Settings.KeyViewerCountWeight);
-            keyViewer?.SetFont((kvLabelEntry ?? target).TmpFont, (kvCountEntry ?? target).TmpFont,
-                countExplicit: kvCountEntry != null);
+            keyViewer?.SetFont((kvLabelEntry ?? target).TmpFont, (kvCountEntry ?? target).TmpFont);
             // Game text has its own font, decoupled from the overlay font (Game UI
             // tab). Titles get the configured weight, defaulting to the heaviest.
             FontLoader.FontEntry gameEntry =

@@ -37,7 +37,7 @@ namespace Bismuth.UI.Pages
             vlg.childForceExpandHeight = false;
             vlg.spacing = 2f;
 
-            UIBuilder.Collapsible(subContainer.transform, "Hitmeter", s.HideHitmeter,
+            UIBuilder.Collapsible(subContainer.transform, "Hit error meter", s.HideHitmeter,
                 v => { s.HideHitmeter = v; notify?.Invoke(); }, null);
 
             UIBuilder.Collapsible(subContainer.transform, "Autoplay text", s.HideAutoplayText,
@@ -52,8 +52,44 @@ namespace Bismuth.UI.Pages
             UIBuilder.Collapsible(subContainer.transform, "Difficulty", s.HideDifficulty,
                 v => { s.HideDifficulty = v; notify?.Invoke(); }, null);
 
-            UIBuilder.Collapsible(subContainer.transform, "Perfect judgements", s.HidePerfectJudgements,
-                v => { s.HidePerfectJudgements = v; notify?.Invoke(); }, null);
+            // Inline header toggle enables/disables the feature. Body: a master "Hide all
+            // judgements" toggle at top that, when on, hides the per-category rows (they're
+            // moot) — same forward-declared-subcontainer pattern as the page's Hide all UI.
+            UIBuilder.Collapsible(subContainer.transform, "Hide judgements", s.HideJudgementsEnabled,
+                v => { s.HideJudgementsEnabled = v; notify?.Invoke(); },
+                body =>
+                {
+                    GameObject catContainer = null;
+
+                    UIBuilder.Collapsible(body, "Hide all judgements", s.HideJudgementsAll,
+                        v =>
+                        {
+                            s.HideJudgementsAll = v;
+                            if (catContainer != null) catContainer.SetActive(!v);
+                            notify?.Invoke();
+                        }, null);
+
+                    catContainer = UIBuilder.Rect("JudgementCats", body);
+                    var catVlg = catContainer.AddComponent<UnityEngine.UI.VerticalLayoutGroup>();
+                    catVlg.childControlWidth = true;
+                    catVlg.childControlHeight = true;
+                    catVlg.childForceExpandWidth = true;
+                    catVlg.childForceExpandHeight = false;
+                    catVlg.spacing = 2f;
+
+                    UIBuilder.Collapsible(catContainer.transform, "Perfects", s.HideJudgementsPerfect,
+                        v => { s.HideJudgementsPerfect = v; notify?.Invoke(); }, null);
+                    UIBuilder.Collapsible(catContainer.transform, "E/LPerfects", s.HideJudgementsELPerfect,
+                        v => { s.HideJudgementsELPerfect = v; notify?.Invoke(); }, null);
+                    UIBuilder.Collapsible(catContainer.transform, "Early/Late", s.HideJudgementsEarlyLate,
+                        v => { s.HideJudgementsEarlyLate = v; notify?.Invoke(); }, null);
+                    UIBuilder.Collapsible(catContainer.transform, "Misses", s.HideJudgementsMiss,
+                        v => { s.HideJudgementsMiss = v; notify?.Invoke(); }, null);
+                    UIBuilder.Collapsible(catContainer.transform, "Deaths", s.HideJudgementsDeath,
+                        v => { s.HideJudgementsDeath = v; notify?.Invoke(); }, null);
+
+                    catContainer.SetActive(!s.HideJudgementsAll);
+                });
 
             UIBuilder.Collapsible(subContainer.transform, "Song title", s.HideLevelName,
                 v => { s.HideLevelName = v; notify?.Invoke(); }, null);

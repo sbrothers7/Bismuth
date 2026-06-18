@@ -19,10 +19,19 @@ namespace Bismuth.UI
         private static GameObject _canvasGo;
         private static Canvas _canvas;
 
+        // Whether to reopen the settings panel when the editor closes (it's hidden while
+        // editing so it doesn't cover the HUD being positioned).
+        private static bool _reopenPanel;
+
         public static void Open()
         {
             if (IsActive) return;
             LocationEditor.Close(); // one editor at a time (both at 31000)
+
+            _reopenPanel = UICore.IsOpen;
+            if (_reopenPanel) UICore.Close();
+            Cursor.visible = true;
+            Cursor.lockState = CursorLockMode.None;
 
             _canvasGo = new GameObject("BismuthGameUiEditor");
             UnityEngine.Object.DontDestroyOnLoad(_canvasGo);
@@ -52,6 +61,8 @@ namespace Bismuth.UI
             MakeMeterHandle();
             MakeDoneButton();
             _canvasGo.AddComponent<HandleSorter>();
+            EditorUndo.Reset();
+            _canvasGo.AddComponent<UndoPoller>();
         }
 
         // Keeps smaller handles above larger ones. The congrats/results boxes blanket
@@ -102,6 +113,8 @@ namespace Bismuth.UI
             _canvasGo = null;
             _canvas = null;
             UICore.OnSettingsChanged?.Invoke();
+            if (_reopenPanel && UICore.CanvasRoot != null) UICore.Open();
+            _reopenPanel = false;
         }
 
         // ── Force-show while editing ─────────────────────────────────────────
@@ -254,6 +267,20 @@ namespace Bismuth.UI
                 GameUiLayout.ApplyOne(t.Key);
             };
             h.ResetTarget = () => GameUiLayout.ResetToDefault(t.Key);
+            h.CaptureUndo = () =>
+            {
+                var o = GameUiLayout.GetOverride(t.Key, create: false);
+                bool had = o != null;
+                float ox = had ? o.OffX : 0f, oy = had ? o.OffY : 0f, scl = had ? o.Scale : 1f;
+                int al = had ? o.Align : -1;
+                return () =>
+                {
+                    if (!had) { GameUiLayout.RemoveOverride(t.Key); return; }
+                    var r = GameUiLayout.GetOverride(t.Key, create: true);
+                    r.OffX = ox; r.OffY = oy; r.Scale = scl; r.Align = al;
+                    GameUiLayout.ApplyOne(t.Key);
+                };
+            };
         }
 
         // Screen px → element-parent units: undo the game canvas's scale factor.
@@ -300,6 +327,18 @@ namespace Bismuth.UI
                 s.GameErrorMeterY = 0.03f;
                 s.GameErrorMeterScale = 1f;
                 GameUiLayout.RestoreErrorMeter();
+            };
+            h.CaptureUndo = () =>
+            {
+                bool ov = s.GameErrorMeterOverride;
+                float x = s.GameErrorMeterX, y = s.GameErrorMeterY, scl = s.GameErrorMeterScale;
+                return () =>
+                {
+                    s.GameErrorMeterOverride = ov;
+                    s.GameErrorMeterX = x; s.GameErrorMeterY = y; s.GameErrorMeterScale = scl;
+                    if (ov) GameUiLayout.ApplyErrorMeter(GameUiLayout.CurrentMeter());
+                    else GameUiLayout.RestoreErrorMeter();
+                };
             };
         }
 
@@ -366,7 +405,7 @@ namespace Bismuth.UI
             ClickHandler.Attach(btn, Close);
 
             var hint = UIBuilder.Label(_canvasGo.transform,
-                "Drag to move  ·  Corner grips / scroll to scale  ·  Right-click to reset",
+                "Drag to move (Shift: 1 axis)  ·  Grips / scroll to scale  ·  Right-click reset  ·  Ctrl/⌘+Z undo",
                 (int)UIBuilder.SmallCapsFontSize, TextAnchor.MiddleCenter, Theme.TextMuted);
             var hintRect = hint.rectTransform;
             hintRect.anchorMin = hintRect.anchorMax = new Vector2(0.5f, 1f);

@@ -178,6 +178,9 @@ namespace Bismuth
             ResetMeterSettings();
         }
 
+        // Reset just the error meter to the game placement (for its per-element row).
+        internal static void ResetMeter() => ResetMeterSettings();
+
         // Meter has no Bismuth default. Its default IS the game placement.
         private static void ResetMeterSettings()
         {
@@ -214,6 +217,32 @@ namespace Bismuth
         {
             if (_applyFrameA > 0 && Time.frameCount >= _applyFrameA) { _applyFrameA = -1; Reapply(); }
             if (_applyFrameB > 0 && Time.frameCount >= _applyFrameB) { _applyFrameB = -1; Reapply(); }
+            TickAutoplayContent();
+        }
+
+        /* The autoplay label rewrites its text as the run's state changes (e.g. appends
+           "+ pause"), which resizes it and shifts its center. ApplyOne pins the wrapper
+           pivot to the center it measured once, so a scaled/offset autoplay would drift.
+           Re-apply when the content changes — deferred a frame so the Text has re-laid-out
+           before we re-measure the center. Only relevant while an override is active. */
+        private static string _autoplayText;
+        private static int _autoplayReapplyFrame = -1;
+
+        private static void TickAutoplayContent()
+        {
+            if (_autoplayReapplyFrame > 0 && Time.frameCount >= _autoplayReapplyFrame)
+            {
+                _autoplayReapplyFrame = -1;
+                ApplyOne("autoplay");
+            }
+
+            if (GetOverride("autoplay", create: false) == null) return;
+            var rt = AutoplayText();
+            var txt = rt != null ? rt.GetComponentInChildren<Text>(true) : null;
+            if (txt == null) return;
+            if (txt.text == _autoplayText) return;
+            _autoplayText = txt.text;
+            _autoplayReapplyFrame = Time.frameCount + 1;
         }
 
         internal static void Reapply()
@@ -248,6 +277,10 @@ namespace Bismuth
             var w = EnsureWrapper(t.Key, rt);
             if (w == null) return;
 
+            // Alignment changes the element's own pivot, so apply it before measuring the
+            // center the wrapper scales around.
+            ApplyAlign(t.Key, rt, o.Align);
+
             /* Reset first to measure the element's untouched center, then pivot the
                wrapper there so scale grows the element in place. With wrapper rect ==
                parent rect, anchoredPosition equals the on-screen shift regardless of
@@ -262,6 +295,70 @@ namespace Bismuth
             w.anchoredPosition = new Vector2(o.OffX, o.OffY);
             float sc = Mathf.Clamp(o.Scale, 0.1f, 5f);
             w.localScale = new Vector3(sc, sc, 1f);
+        }
+
+        // ── Text alignment (autoplay label, etc.) ────────────────────────────
+        // Caches each element's original alignment the first time we touch it (or when
+        // the game swaps the component instance), so inherit (-1) and RestoreAll revert.
+        private struct AlignState
+        {
+            public Text Txt;
+            public TextAnchor Orig;
+            public HorizontalWrapMode OrigWrap;
+            public float OrigPivotX;
+        }
+        private static readonly Dictionary<string, AlignState> _alignOrig =
+            new Dictionary<string, AlignState>();
+
+        private static void ApplyAlign(string key, RectTransform rt, int align)
+        {
+            var txt = rt.GetComponentInChildren<Text>(true);
+            if (txt == null) return;
+            var trt = txt.rectTransform;
+
+            AlignState st;
+            if (!_alignOrig.TryGetValue(key, out st) || !ReferenceEquals(st.Txt, txt))
+            {
+                st = new AlignState
+                {
+                    Txt = txt, Orig = txt.alignment,
+                    OrigWrap = txt.horizontalOverflow, OrigPivotX = trt.pivot.x,
+                };
+                _alignOrig[key] = st;
+            }
+
+            if (align < 0) // inherit: restore the captured originals
+            {
+                txt.alignment = st.Orig;
+                txt.horizontalOverflow = st.OrigWrap;
+                SetPivotX(trt, st.OrigPivotX);
+                return;
+            }
+
+            /* The label's rect is sized to its content, so Text.alignment alone can't move
+               it — the element's pivot.x decides which edge stays put as the text grows
+               (Left=0, Center=0.5, Right=1), exactly like the attempts block. Overflow keeps
+               it on one line so content changes grow about that pivot, not wrap off-center. */
+            float pivotX = align == (int)TextAlign.Left ? 0f
+                         : align == (int)TextAlign.Right ? 1f : 0.5f;
+            SetPivotX(trt, pivotX);
+            txt.alignment = MapAlign(align, st.Orig);
+            txt.horizontalOverflow = HorizontalWrapMode.Overflow;
+        }
+
+        private static void SetPivotX(RectTransform rt, float x)
+        {
+            if (Mathf.Approximately(rt.pivot.x, x)) return;
+            rt.pivot = new Vector2(x, rt.pivot.y);
+        }
+
+        // Map a horizontal Left/Center/Right (0/1/2) onto TextAnchor, keeping the
+        // element's original vertical row (upper/middle/lower).
+        private static TextAnchor MapAlign(int align, TextAnchor orig)
+        {
+            int row = (int)orig / 3;                 // 0 upper, 1 middle, 2 lower
+            int col = Mathf.Clamp(align, 0, 2);      // 0 left, 1 center, 2 right
+            return (TextAnchor)(row * 3 + col);
         }
 
         private static Vector3 WorldCenter(RectTransform rt)
@@ -341,6 +438,14 @@ namespace Bismuth
         {
             var keys = new List<string>(_wrappers.Keys);
             foreach (var k in keys) Unwrap(k);
+            foreach (var kv in _alignOrig)
+                if (kv.Value.Txt != null)
+                {
+                    kv.Value.Txt.alignment = kv.Value.Orig;
+                    kv.Value.Txt.horizontalOverflow = kv.Value.OrigWrap;
+                    SetPivotX(kv.Value.Txt.rectTransform, kv.Value.OrigPivotX);
+                }
+            _alignOrig.Clear();
             RestoreErrorMeter();
         }
 
@@ -384,7 +489,10 @@ namespace Bismuth
             }
 
             if (!s.GameErrorMeterOverride) return;
-            var p = new Vector2(Mathf.Clamp01(s.GameErrorMeterX), Mathf.Clamp01(s.GameErrorMeterY));
+            // Allow overshoot past the canvas edges so the meter can sit fully off-screen
+            // (e.g. below the bottom). Range matches the meter sliders in PageGameUi.
+            var p = new Vector2(Mathf.Clamp(s.GameErrorMeterX, -0.5f, 1.5f),
+                                Mathf.Clamp(s.GameErrorMeterY, -0.5f, 1.5f));
             w.anchorMin = p;
             w.anchorMax = p;
             w.pivot = p;

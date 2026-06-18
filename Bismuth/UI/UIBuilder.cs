@@ -481,6 +481,10 @@ namespace Bismuth.UI
             var row = Row(parent);
             const float labelW = 140f;
             const float valueW = 56f;
+            const float undoW = 20f;   // inline revert button, left of the value field
+            const float undoGap = 4f;
+            const float trackGap = 12f; // breathing room between the track end and the undo button
+            const float rightW = valueW + undoW + undoGap + trackGap; // reserved right cluster (track sizing)
 
             // Label
             var labGo = Rect("Label", row.transform);
@@ -544,8 +548,8 @@ namespace Bismuth.UI
             trackRect.anchorMin = new Vector2(0, 0.5f);
             trackRect.anchorMax = new Vector2(1, 0.5f);
             trackRect.pivot = new Vector2(0.5f, 0.5f);
-            trackRect.sizeDelta = new Vector2(-(labelW + valueW + 24f), 5f);
-            trackRect.anchoredPosition = new Vector2((labelW - valueW) * 0.5f + 4f, 0);
+            trackRect.sizeDelta = new Vector2(-(labelW + rightW + 24f), 5f);
+            trackRect.anchoredPosition = new Vector2((labelW - rightW) * 0.5f + 4f, 0);
 
             // Sharp flat Image instead of RoundedRectGraphic — the procedural geometry's AA
             // fringe blurred visibly at UI scale > 1. Flat rect with no antialiasing stays crisp.
@@ -597,6 +601,40 @@ namespace Bismuth.UI
             ctrl.OnChange = onChange;
             ctrl.ApplyVisuals();
 
+            // Inline undo button (left of the value field). Hidden until the value differs
+            // from the baseline captured at the start of the most recent edit; clicking it
+            // reverts that edit. Sits in the reserved right cluster so the row never reflows.
+            var undoGo = Rect("Undo", row.transform);
+            var undoRect = (RectTransform)undoGo.transform;
+            undoRect.anchorMin = undoRect.anchorMax = new Vector2(1f, 0.5f);
+            undoRect.pivot = new Vector2(1f, 0.5f);
+            undoRect.sizeDelta = new Vector2(undoW, undoW);
+            undoRect.anchoredPosition = new Vector2(-(8f + valueW + undoGap), 0f);
+            var undoBg = undoGo.AddComponent<RoundedRectGraphic>();
+            undoBg.Radius = 4f;
+            undoBg.AAFringe = 0.5f;
+            undoBg.color = new Color(Theme.ToggleOn.r, Theme.ToggleOn.g, Theme.ToggleOn.b, 0.18f);
+            undoBg.raycastTarget = true;
+            var undoLbl = Label(undoGo.transform, "↺", (int)LabelFontSize, TextAnchor.MiddleCenter, Theme.Text);
+            undoLbl.raycastTarget = false;
+            undoGo.SetActive(false);
+
+            float baseline = ctrl.Value;
+            void RefreshUndo() => undoGo.SetActive(!Mathf.Approximately(ctrl.Value, baseline));
+
+            ctrl.OnEditBegin = () => baseline = ctrl.Value;
+            ctrl.OnAfterChange = RefreshUndo;
+
+            ClickHandler.Attach(undoGo, () =>
+            {
+                if (Mathf.Approximately(ctrl.Value, baseline)) { RefreshUndo(); return; }
+                ctrl.Value = baseline;
+                ctrl.ApplyVisuals();
+                input.text = baseline.ToString(format);
+                onChange?.Invoke(baseline);
+                RefreshUndo();
+            });
+
             // Keyboard commit: parse, clamp, snap, push back through ApplyVisuals + onChange.
             float captureMin = min, captureMax = max, captureStep = step;
             string captureFormat = format;
@@ -607,6 +645,7 @@ namespace Bismuth.UI
                     if (captureStep > 0f) v = Mathf.Round(v / captureStep) * captureStep;
                     if (!Mathf.Approximately(v, ctrl.Value))
                     {
+                        baseline = ctrl.Value;   // pre-edit value is the undo target
                         ctrl.Value = v;
                         onChange?.Invoke(v);
                     }
@@ -614,6 +653,7 @@ namespace Bismuth.UI
                 // Always reformat the displayed text — reverts garbage input or normalizes precision.
                 input.text = ctrl.Value.ToString(captureFormat);
                 ctrl.ApplyVisuals();
+                RefreshUndo();
             });
 
             return row;
@@ -1802,8 +1842,10 @@ namespace Bismuth.UI
         public string Format = "0.00";
         public float Step = 0f;
         public Action<float> OnChange;
+        public Action OnEditBegin;    // gesture start, before the first value change (undo baseline)
+        public Action OnAfterChange;  // after Value changed + OnChange invoked (refresh undo button)
 
-        public void OnPointerDown(PointerEventData e) { UpdateFromPointer(e); }
+        public void OnPointerDown(PointerEventData e) { OnEditBegin?.Invoke(); UpdateFromPointer(e); }
         public void OnDrag(PointerEventData e) { UpdateFromPointer(e); }
 
         private void UpdateFromPointer(PointerEventData e)
@@ -1821,6 +1863,7 @@ namespace Bismuth.UI
             Value = newValue;
             ApplyVisuals();
             OnChange?.Invoke(Value);
+            OnAfterChange?.Invoke();
         }
 
         public void ApplyVisuals()

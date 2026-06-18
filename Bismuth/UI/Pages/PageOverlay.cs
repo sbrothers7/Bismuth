@@ -7,6 +7,7 @@ namespace Bismuth.UI.Pages
     internal static class PageOverlay
     {
         private static readonly string[] PositionLabels = new[] { "Left", "Right" };
+        private static readonly string[] AlignLabels = new[] { "Left", "Center", "Right" };
 
         public static void Build(RectTransform content)
         {
@@ -149,20 +150,18 @@ namespace Bismuth.UI.Pages
                     v => { s.AttemptsX = v; notify?.Invoke(); }, "0.00");
                 UIBuilder.Slider(body, "Y", s.AttemptsY, 0f, 1f,
                     v => { s.AttemptsY = v; notify?.Invoke(); }, "0.00");
+                UIBuilder.Segmented(body, "Align", (int)s.AttemptsAlign, AlignLabels,
+                    idx => { s.AttemptsAlign = (TextAlign)idx; notify?.Invoke(); });
                 UIBuilder.DangerButton(body, "Reset current level", () => Overlay.Instance?.ResetAttempts());
                 UIBuilder.DangerButton(body, "Reset all levels", () => AttemptsStore.ClearAll());
             });
 
-            // Scale/offset always apply; visibility (HideLevelName) lives in Hide UI.
+            // Visibility (HideLevelName) lives in Hide UI; position/scale/weight moved to
+            // Game UI → Elements ("Level Name").
             UIBuilder.ExpandSection(content, "Song Title/Artist", body =>
             {
                 UIBuilder.Collapsible(body, "Use overlay font", s.LevelNameUseOverlayFont,
                     v => { s.LevelNameUseOverlayFont = v; notify?.Invoke(); }, null);
-                // Level-name weight moved to Game UI → Element weights ("Level Name").
-                UIBuilder.Slider(body, "Scale", s.LevelNameScale, 0.1f, 3f,
-                    v => { s.LevelNameScale = v; notify?.Invoke(); }, "0.00");
-                UIBuilder.Slider(body, "Y offset", s.LevelNameY, -500f, 500f,
-                    v => { s.LevelNameY = v; notify?.Invoke(); }, "0", 1f);
             });
 
             UIBuilder.Spacer(content);

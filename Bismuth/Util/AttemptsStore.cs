@@ -54,6 +54,28 @@ namespace Bismuth
             Set(FullPrefix + key, value);
         }
 
+        /* One-time carry-over when a level's key scheme changes (e.g. path-based ->
+           content hash). Moves both the regular and full-attempt entries from oldKey
+           to newKey, but never clobbers an existing newKey. No-op if oldKey is null,
+           equal to newKey, or absent. */
+        public static void Migrate(string oldKey, string newKey)
+        {
+            if (oldKey == null || newKey == null || oldKey == newKey) return;
+            EnsureLoaded();
+            bool changed = false;
+            changed |= Move(oldKey, newKey);
+            changed |= Move(FullPrefix + oldKey, FullPrefix + newKey);
+            if (changed) Save();
+        }
+
+        private static bool Move(string from, string to)
+        {
+            if (_data.ContainsKey(to) || !_data.TryGetValue(from, out int v)) return false;
+            _data[to] = v;
+            _data.Remove(from);
+            return true;
+        }
+
         public static void ClearAll()
         {
             EnsureLoaded();

@@ -14,12 +14,7 @@ namespace Bismuth.UI.Pages
             // Bismuth-element on-screen position editor (moved from the old Locations tab).
             UIBuilder.SectionHeader(content, "Locations");
             UIBuilder.Description(content,
-                "Drag elements directly on screen: the status panels, combo display and its " +
-                "label (vertical only), judgements, timing scale, attempts and key viewer panels. " +
-                "Elements snap to the screen edges, a 10px inset margin, and the center lines. " +
-                "Hidden elements have no handle — enable them first. " +
-                "Move or close this panel if it covers something; finish with the Done " +
-                "button at the top of the screen.");
+                "Drag elements directly on screen to adjust positions");
             UIBuilder.Button(content, "Edit positions on screen", LocationEditor.Open);
             UIBuilder.DangerButton(content, "Reset all positions", () =>
             {

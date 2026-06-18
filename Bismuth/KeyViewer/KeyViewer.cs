@@ -28,7 +28,6 @@ namespace Bismuth
         internal RectTransform FootPanel => _footPanel;
         private TMP_FontAsset _labelFont;
         private TMP_FontAsset _countFont;
-        private bool _countFontExplicit;
 
         // Persistent across rebuilds
         // Per-preset counts: presetName → (key → count). Each preset persists its own totals.
@@ -113,6 +112,39 @@ namespace Bismuth
             !s.ActiveHideAllUI && s.ShowKeyViewer &&
             ((s.ShowHandViewer && s.Hand != null) || (s.ShowFootViewer && s.Foot != null));
 
+        // Per-scene suppression (level editor / main menu), independent of the enable flags.
+        private static readonly HashSet<string> _mainMenuScenes = new HashSet<string>
+        {
+            "scnSplash", "scnLevelSelect", "scnLevelSelectTaro", "scnTaroMenu",
+            "scnVegaMenu", "scnMobileMenu",
+        };
+
+        private static bool HiddenForScene(Settings s)
+        {
+            if (s.HideKeyViewerInEditor)
+            {
+                // Only while actually editing. scnEditor.playMode is true during play/
+                // preview (and paused mid-playtest), false while editing — gameworld is
+                // true even while editing, so it can't distinguish the two.
+                bool editing = false;
+                try { var ed = scnEditor.instance; editing = ed != null && !ed.playMode; }
+                catch { }
+                if (editing) return true;
+            }
+            if (s.HideKeyViewerInMainMenu &&
+                _mainMenuScenes.Contains(UnityEngine.SceneManagement.SceneManager.GetActiveScene().name))
+                return true;
+            return false;
+        }
+
+        // Single source of truth for canvas visibility: enabled AND not scene-suppressed.
+        private void UpdateCanvasVisibility()
+        {
+            if (_canvas == null || _settings == null) return;
+            bool show = AnyViewerOn(_settings) && !HiddenForScene(_settings);
+            if (_canvas.gameObject.activeSelf != show) _canvas.gameObject.SetActive(show);
+        }
+
         private static bool NeedsPersist(Settings s) =>
             (s.Hand != null && s.Hand.PersistCounts) || (s.Foot != null && s.Foot.PersistCounts);
 
@@ -134,7 +166,7 @@ namespace Bismuth
         internal void ApplySettings(Settings settings)
         {
             _settings = settings;
-            _canvas.gameObject.SetActive(AnyViewerOn(settings));
+            UpdateCanvasVisibility();
             if (AnyViewerOn(settings) && _handPanel == null && _footPanel == null)
                 BuildLayout();
             if (_handPanel != null && settings.Hand != null)
@@ -182,7 +214,7 @@ namespace Bismuth
             _settings = settings;
             ClearLayout();
             BuildLayout();
-            _canvas.gameObject.SetActive(AnyViewerOn(settings));
+            UpdateCanvasVisibility();
         }
 
         // Move a cell's persisted press count from its old key to the new one when the user
@@ -227,15 +259,14 @@ namespace Bismuth
             _lastTotalPerPreset.Clear();
         }
 
-        // Labels and counts take independent weights. countExplicit = the user picked
-        // a real weight for counts, so the legacy faux-Bold style is dropped (it would
-        // stack engine bold on top of the chosen weight).
-        internal void SetFont(TMP_FontAsset labelFont, TMP_FontAsset countFont, bool countExplicit)
+        // Labels and counts take independent weights. Counts render in their resolved
+        // weight (the "Count weight" dropdown; "" = the base font) — no faux Bold, which
+        // used to override a deliberately Regular selection.
+        internal void SetFont(TMP_FontAsset labelFont, TMP_FontAsset countFont)
         {
             _labelFont = labelFont;
             _countFont = countFont != null ? countFont : labelFont;
-            _countFontExplicit = countExplicit;
-            var countStyle = countExplicit ? TMPro.FontStyles.Normal : TMPro.FontStyles.Bold;
+            var countStyle = TMPro.FontStyles.Normal;
             foreach (var kvp in _keyCells)
                 foreach (var c in kvp.Value)
                 {
@@ -309,7 +340,7 @@ namespace Bismuth
             _canvas.sortingOrder = 100;
             ConfigureScaler(canvasGo.AddComponent<CanvasScaler>());
             canvasGo.AddComponent<GraphicRaycaster>();
-            canvasGo.SetActive(AnyViewerOn(_settings));
+            UpdateCanvasVisibility();
         }
 
         private static void ConfigureScaler(CanvasScaler scaler)

@@ -4,6 +4,7 @@ using UnityModManagerNet;
 namespace Bismuth
 {
     public enum OverlayPosition { Left, Right }
+    public enum TextAlign { Left, Center, Right }
 
     public class KvColor
     {
@@ -100,6 +101,9 @@ namespace Bismuth
         public float OffX;
         public float OffY;
         public float Scale = 1f;
+        // Horizontal text alignment for text-bearing elements (currently the autoplay
+        // label). -1 = inherit the game's alignment; 0/1/2 = Left/Center/Right.
+        public int Align = -1;
     }
 
     public class Settings : UnityModManager.ModSettings
@@ -176,6 +180,10 @@ namespace Bismuth
         public bool ShowKeyViewer  = true;
         public bool ShowHandViewer = true;
         public bool ShowFootViewer = false;
+        // Scene-based suppression of the key viewer. Editor defaults on (the viewer just
+        // clutters the chart editor); main menu off.
+        public bool HideKeyViewerInEditor   = true;
+        public bool HideKeyViewerInMainMenu = false;
 
         [System.Xml.Serialization.XmlIgnore]
         public KeyViewerPreset Hand =>
@@ -229,6 +237,18 @@ namespace Bismuth
         public bool HideAutoplayIcon = false;
         public bool HideNoFail = false;
         public bool HideDifficulty = false;
+        // Judgement hit-text hiding. HideJudgementsEnabled is the feature on/off (the
+        // collapsible's inline toggle). HideJudgementsAll is the in-body master that
+        // hides every popup; otherwise the per-category flags apply (see ShouldHideJudgement).
+        public bool HideJudgementsEnabled = false;
+        public bool HideJudgementsAll = false;
+        public bool HideJudgementsPerfect = false;    // Perfect
+        public bool HideJudgementsELPerfect = false;  // EarlyPerfect, LatePerfect
+        public bool HideJudgementsEarlyLate = false;  // VeryEarly, VeryLate
+        public bool HideJudgementsMiss = false;       // TooEarly, TooLate
+        public bool HideJudgementsDeath = false;      // FailMiss, FailOverload, Multipress, OverPress
+        // Legacy single toggle (pre-judgement-categories). Migrated in EnsureDefaults
+        // into HideJudgementsPerfect, then cleared. Kept so old Settings.xml deserializes.
         public bool HidePerfectJudgements = false;
         public bool HideLevelName = false;
         public bool HideBetaBuild = false;
@@ -241,9 +261,27 @@ namespace Bismuth
         [System.Xml.Serialization.XmlIgnore] public bool ActiveHideAutoplayIcon      => HideUiEnabled && HideAutoplayIcon;
         [System.Xml.Serialization.XmlIgnore] public bool ActiveHideNoFail            => HideUiEnabled && HideNoFail;
         [System.Xml.Serialization.XmlIgnore] public bool ActiveHideDifficulty        => HideUiEnabled && HideDifficulty;
-        [System.Xml.Serialization.XmlIgnore] public bool ActiveHidePerfectJudgements => HideUiEnabled && HidePerfectJudgements;
         [System.Xml.Serialization.XmlIgnore] public bool ActiveHideLevelName         => HideUiEnabled && HideLevelName;
         [System.Xml.Serialization.XmlIgnore] public bool ActiveHideBetaBuild         => HideUiEnabled && HideBetaBuild;
+
+        /* Whether a judgement hit-text popup of margin m should be suppressed. Gated by
+           the section master (HideUiEnabled) like the Active* flags; HideJudgements hides
+           every margin, otherwise the per-category flag for that margin's bucket applies. */
+        public bool ShouldHideJudgement(HitMargin m)
+        {
+            if (!HideUiEnabled || !HideJudgementsEnabled) return false;
+            if (HideJudgementsAll) return true;
+            switch (m)
+            {
+                case HitMargin.Perfect:                            return HideJudgementsPerfect;
+                case HitMargin.EarlyPerfect: case HitMargin.LatePerfect: return HideJudgementsELPerfect;
+                case HitMargin.VeryEarly:    case HitMargin.VeryLate:    return HideJudgementsEarlyLate;
+                case HitMargin.TooEarly:     case HitMargin.TooLate:     return HideJudgementsMiss;
+                case HitMargin.FailMiss: case HitMargin.FailOverload:
+                case HitMargin.Multipress: case HitMargin.OverPress:     return HideJudgementsDeath;
+                default:                                           return false;  // Auto, etc.
+            }
+        }
 
         public OverlayPosition ProgressPosition  = OverlayPosition.Left;
         public OverlayPosition AccPosition       = OverlayPosition.Left;
@@ -254,7 +292,11 @@ namespace Bismuth
         public float TimingScaleSize = 0.75f;
         public float AttemptsX = 0.77f;
         public float AttemptsY = 0.05f;
+        // Horizontal alignment of the attempts block relative to its anchor. Left pairs
+        // with the 0.77 X anchor so the block grows rightward from there.
+        public TextAlign AttemptsAlign = TextAlign.Left;
         public float LevelNameScale = 0.3f;
+        public float LevelNameX     = 0f;
         public float LevelNameY     = 30f;
 
         // Normalized screen anchors for the draggable elements (Locations tab). Defaults
@@ -286,6 +328,9 @@ namespace Bismuth
         // also a legitimate user state (everything reset to vanilla), so emptiness
         // alone can't trigger re-seeding the way the KV presets do.
         public bool GameUiDefaultsSeeded = false;
+        // One-time guard: nudge already-seeded configs off the old "Black" judgement
+        // weight default onto the new "Light" one.
+        public bool JudgementWeightLightMigrated = false;
 
         public ColorGradient ProgressGradient;
         public ColorGradient AccGradient;
@@ -359,6 +404,15 @@ namespace Bismuth
             // tuned setup): win/death texts pulled toward the center and scaled down
             // from the oversized stock sizes. Seeded once on fresh installs, never
             // re-applied over an existing (or deliberately emptied) layout.
+            // Migrate the legacy single "hide perfect judgements" toggle into the new
+            // per-category flag, then clear it so it doesn't re-trigger on later loads.
+            if (HidePerfectJudgements)
+            {
+                HideJudgementsEnabled = true;
+                HideJudgementsPerfect = true;
+                HidePerfectJudgements = false;
+            }
+
             if (!GameUiDefaultsSeeded)
             {
                 GameUiDefaultsSeeded = true;
@@ -366,6 +420,15 @@ namespace Bismuth
                     GameUiOverrides = MakeGameUiDefaults();
                 if (GameUiTextWeights == null || GameUiTextWeights.Count == 0)
                     GameUiTextWeights = MakeGameUiWeightDefaults();
+            }
+
+            // The judgement default changed Black → Light; carry already-seeded configs
+            // still on the old default over, once.
+            if (!JudgementWeightLightMigrated)
+            {
+                JudgementWeightLightMigrated = true;
+                if (string.Equals(GameUiWeightFor("judgement"), "Black", System.StringComparison.OrdinalIgnoreCase))
+                    SetGameUiWeight("judgement", "Light");
             }
         }
 
@@ -413,7 +476,7 @@ namespace Bismuth
             new GameUiTextWeight { Key = "results",      Weight = "Light" },
             new GameUiTextWeight { Key = "strictclear",  Weight = "Bold" },
             new GameUiTextWeight { Key = "autoplay",     Weight = "Light" },
-            new GameUiTextWeight { Key = "judgement",    Weight = "Black" },
+            new GameUiTextWeight { Key = "judgement",    Weight = "Light" },
             new GameUiTextWeight { Key = "levelname",    Weight = "Medium" },
         };
 

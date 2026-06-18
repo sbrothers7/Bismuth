@@ -176,21 +176,6 @@ namespace Bismuth
             GameUiLayout.Reapply();
         }
 
-        private static string GetLevelKey()
-        {
-            var controller = scrController.instance;
-            if (controller == null) return null;
-            string name = controller.levelName;
-            // Official levels: levelName = GCS.internalLevelName (e.g. "1-1")
-            // Custom levels: levelName falls back to "scnGame", so use scnGame.levelPath instead
-            if (string.IsNullOrEmpty(name) || name == "scnGame")
-            {
-                string path = scnGame.instance?.levelPath;
-                return string.IsNullOrEmpty(path) ? null : path;
-            }
-            return name;
-        }
-
         private static Color MarginColor(HitMargin m)
         {
             // RDConstants.data is a lazy getter that can NRE inside during startup

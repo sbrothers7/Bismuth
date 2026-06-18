@@ -107,6 +107,18 @@ namespace Bismuth
                 var anchor = new Vector2(settings.AttemptsX, settings.AttemptsY);
                 attemptsContainer.anchorMin = anchor;
                 attemptsContainer.anchorMax = anchor;
+                // Pivot.x picks which edge stays pinned to the anchor (so the block grows
+                // inward); the VLG child alignment aligns the differently-sized rows.
+                float px; TextAnchor childAlign;
+                switch (settings.AttemptsAlign)
+                {
+                    case TextAlign.Left:  px = 0f;   childAlign = TextAnchor.MiddleLeft;   break;
+                    case TextAlign.Right: px = 1f;   childAlign = TextAnchor.MiddleRight;  break;
+                    default:              px = 0.5f; childAlign = TextAnchor.MiddleCenter; break;
+                }
+                attemptsContainer.pivot = new Vector2(px, attemptsContainer.pivot.y);
+                var avlg = attemptsContainer.GetComponent<VerticalLayoutGroup>();
+                if (avlg != null) avlg.childAlignment = childAlign;
             }
 
             if (fpsContainer != null) fpsContainer.SetActive(settings.ShowFps);
@@ -327,7 +339,7 @@ namespace Bismuth
                downsampled glyphs from the original raster look cleaner than re-rasterising the
                dynamic font at a smaller size anyway */
             rt.localScale = Vector3.one * settings.LevelNameScale;
-            rt.anchoredPosition = _levelNameOrigPos.Value + new Vector2(0f, settings.LevelNameY);
+            rt.anchoredPosition = _levelNameOrigPos.Value + new Vector2(settings.LevelNameX, settings.LevelNameY);
             /* Keep level name on one line. Game appends speed-trial multiplier ("… (1.1배)")
                to this same Text; Pretendard is wider than stock font, so it wrapped where
                vanilla didn't and the wrapped line overlapped the first. Label is meant to be

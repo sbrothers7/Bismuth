@@ -21,11 +21,20 @@ namespace Bismuth.UI
 
         public static void Toggle() { if (IsActive) Close(); else Open(); }
 
+        // Whether to reopen the settings panel when the editor closes (hidden while
+        // editing so it doesn't cover the overlay being positioned).
+        private static bool _reopenPanel;
+
         public static void Open()
         {
             if (IsActive || Overlay.Instance == null) return;
             GameUiEditor.Close(); // one editor at a time (both at 31000)
             var s = UICore.Settings;
+
+            _reopenPanel = UICore.IsOpen;
+            if (_reopenPanel) UICore.Close();
+            Cursor.visible = true;
+            Cursor.lockState = CursorLockMode.None;
 
             _canvasGo = new GameObject("BismuthLocationEditor");
             UnityEngine.Object.DontDestroyOnLoad(_canvasGo);
@@ -57,6 +66,8 @@ namespace Bismuth.UI
             foreach (var t in MakeTargets(s))
                 MakeHandle(t);
             MakeDoneButton();
+            EditorUndo.Reset();
+            _canvasGo.AddComponent<UndoPoller>();
         }
 
         public static void Close()
@@ -68,6 +79,8 @@ namespace Bismuth.UI
             _canvas = null;
             // Full apply restores normal visibility rules and pushes final positions.
             UICore.OnSettingsChanged?.Invoke();
+            if (_reopenPanel && UICore.CanvasRoot != null) UICore.Open();
+            _reopenPanel = false;
         }
 
         // ── Targets ──────────────────────────────────────────────────────────
@@ -79,6 +92,7 @@ namespace Bismuth.UI
             public bool LockX;              // vertical-only elements (offset-driven, e.g. combo label)
             public Action BeginDrag;        // capture the start value
             public Action<Vector2> DragBy;  // apply a screen-pixel delta from drag start
+            public Func<Action> CaptureUndo; // snapshot for undo, returns a restore closure
         }
 
         private static void SetRectAnchor(RectTransform rt, Vector2 a)
@@ -105,6 +119,7 @@ namespace Bismuth.UI
                     a.y = Mathf.Clamp01(a.y);
                     setAnchor(a);
                 },
+                CaptureUndo = () => { var saved = getAnchor(); return () => setAnchor(saved); },
             };
         }
 
@@ -141,6 +156,17 @@ namespace Bismuth.UI
                         s.ComboLabelY = Mathf.Clamp(comboLabelStart + canvasDeltaY / scale, -100f, 200f);
                         var wrap = Overlay.Instance?.ComboLabelRect;
                         if (wrap != null) wrap.anchoredPosition = new Vector2(0f, s.ComboLabelY * scale);
+                    },
+                    CaptureUndo = () =>
+                    {
+                        float saved = s.ComboLabelY;
+                        return () =>
+                        {
+                            s.ComboLabelY = saved;
+                            float scale = Mathf.Max(0.01f, s.ComboDisplaySize);
+                            var wrap = Overlay.Instance?.ComboLabelRect;
+                            if (wrap != null) wrap.anchoredPosition = new Vector2(0f, s.ComboLabelY * scale);
+                        };
                     },
                 },
 
@@ -191,6 +217,7 @@ namespace Bismuth.UI
             h.GetTarget = t.Get;
             h.BeginDragCapture = t.BeginDrag;
             h.DragBy = t.DragBy;
+            h.CaptureUndo = t.CaptureUndo;
             h.LockX = t.LockX;
             h.EditorCanvas = _canvas;
             h.Group = cg;
@@ -216,6 +243,15 @@ namespace Bismuth.UI
             lbl.fontStyle = FontStyle.Bold;
 
             ClickHandler.Attach(btn, Close);
+
+            var hint = UIBuilder.Label(_canvasGo.transform,
+                "Drag to move (Shift: 1 axis)  ·  Ctrl/⌘+Z undo",
+                (int)UIBuilder.SmallCapsFontSize, TextAnchor.MiddleCenter, Theme.TextMuted);
+            var hintRect = hint.rectTransform;
+            hintRect.anchorMin = hintRect.anchorMax = new Vector2(0.5f, 1f);
+            hintRect.pivot = new Vector2(0.5f, 1f);
+            hintRect.anchoredPosition = new Vector2(0f, -54f);
+            hintRect.sizeDelta = new Vector2(420f, 20f);
         }
     }
 
@@ -233,6 +269,7 @@ namespace Bismuth.UI
         public Func<float> GetScale;     // current scale, with SetScale enables scaling
         public Action<float> SetScale;   // absolute scale write (callee clamps)
         public Action ResetTarget;       // right-click, null = no reset
+        public Func<Action> CaptureUndo; // snapshot current state, returns a restore closure (null = not undoable)
         public bool ShowInactive;        // keep a dimmed handle when the target is inactive
         public bool TightBounds;         // size to visible child Graphics, not the target rect
         public bool LockX;
@@ -370,6 +407,7 @@ namespace Bismuth.UI
             _dragging = true;
             _screenStart = e.position;
             target.GetWorldCorners(_cornersStart);
+            EditorUndo.Capture(this);
             BeginDragCapture?.Invoke();
         }
 
@@ -377,21 +415,37 @@ namespace Bismuth.UI
         {
             if (!_dragging) return;
             Vector2 delta = e.position - _screenStart; // screen px
-            if (LockX) delta.x = 0f;
+
+            // Hold Shift to lock the drag to its dominant axis (1-D move). LockX is a
+            // permanent vertical-only constraint for certain targets (e.g. combo label).
+            bool lockX = LockX;
+            bool lockY = false;
+            if (!LockX && ShiftHeld())
+            {
+                if (Mathf.Abs(delta.x) >= Mathf.Abs(delta.y)) lockY = true;
+                else lockX = true;
+            }
+            if (lockX) delta.x = 0f;
+            if (lockY) delta.y = 0f;
+
             float sf = EditorCanvas.scaleFactor;
             float snap = SnapPx * sf;
 
             // Snap the element's would-be screen rect per axis: edge flush to the screen
             // edge, edge to the 1%-inset margin line (the default anchor positions), or
             // center to the screen center.
-            if (!LockX)
+            if (!lockX)
                 delta.x += AxisSnap(_cornersStart[0].x + delta.x, _cornersStart[2].x + delta.x,
                     Screen.width, snap, Screen.width * MarginFrac);
-            delta.y += AxisSnap(_cornersStart[0].y + delta.y, _cornersStart[2].y + delta.y,
-                Screen.height, snap, Screen.height * MarginFrac);
+            if (!lockY)
+                delta.y += AxisSnap(_cornersStart[0].y + delta.y, _cornersStart[2].y + delta.y,
+                    Screen.height, snap, Screen.height * MarginFrac);
 
             DragBy?.Invoke(delta);
         }
+
+        private static bool ShiftHeld() =>
+            Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
 
         // Returns the adjustment that aligns the rect [lo..hi] with its nearest snap line
         // on one screen axis, or 0 when none is within `snap`.
@@ -424,12 +478,14 @@ namespace Bismuth.UI
         public void OnScroll(PointerEventData e)
         {
             if (SetScale == null || GetScale == null || Mathf.Approximately(e.scrollDelta.y, 0f)) return;
+            EditorUndo.Capture(this);
             SetScale(GetScale() * (1f + 0.1f * Mathf.Sign(e.scrollDelta.y)));
         }
 
         public void OnPointerClick(PointerEventData e)
         {
             if (ResetTarget == null || e.button != PointerEventData.InputButton.Right) return;
+            EditorUndo.Capture(this);
             ResetTarget();
             UICore.OnSettingsChanged?.Invoke();
         }
@@ -453,6 +509,7 @@ namespace Bismuth.UI
             _center = Owner.ScreenCenter();
             _startDist = (e.position - _center).magnitude;
             if (_startDist < 2f) return;
+            EditorUndo.Capture(Owner);
             _startScale = Owner.GetScale();
             _scaling = true;
         }
@@ -469,6 +526,45 @@ namespace Bismuth.UI
             if (!_scaling) return;
             _scaling = false;
             UICore.OnSettingsChanged?.Invoke();
+        }
+    }
+
+    // Per-editor-session undo stack. Each handle gesture (drag/scale/reset) pushes a
+    // restore closure captured just before it mutates settings; Ctrl/Cmd+Z pops one.
+    internal static class EditorUndo
+    {
+        private static readonly Stack<Action> _stack = new Stack<Action>();
+
+        public static void Reset() => _stack.Clear();
+
+        public static void Capture(LocHandle h)
+        {
+            var restore = h?.CaptureUndo?.Invoke();
+            if (restore != null) _stack.Push(restore);
+        }
+
+        public static bool Undo()
+        {
+            if (_stack.Count == 0) return false;
+            _stack.Pop().Invoke();
+            UICore.OnSettingsChanged?.Invoke();
+            return true;
+        }
+    }
+
+    // Polls Ctrl/Cmd+Z to undo the last edit. Uses GetKey edge detection because
+    // KeyLimiter blocks Input.GetKeyDown (but not GetKey) while the panel is open.
+    internal class UndoPoller : MonoBehaviour
+    {
+        private bool _zPrev;
+
+        private void Update()
+        {
+            bool z = Input.GetKey(KeyCode.Z);
+            bool mod = Input.GetKey(KeyCode.LeftControl)  || Input.GetKey(KeyCode.RightControl)
+                    || Input.GetKey(KeyCode.LeftCommand)  || Input.GetKey(KeyCode.RightCommand);
+            if (z && !_zPrev && mod) EditorUndo.Undo();
+            _zPrev = z;
         }
     }
 }

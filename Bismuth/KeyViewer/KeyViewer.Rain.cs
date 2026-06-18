@@ -8,7 +8,13 @@ namespace Bismuth
     {
         private void Update()
         {
+            // Re-evaluate scene-based visibility every frame so editor/main-menu hiding
+            // tracks scene changes (apply-time updates alone would miss them).
+            UpdateCanvasVisibility();
             if (_handPanel == null && _footPanel == null) return;
+            // Don't count editor/menu key presses while scene-hidden (e.g. typing in the
+            // chart editor would otherwise inflate persisted counts).
+            if (HiddenForScene(_settings)) return;
 
             float now = Time.realtimeSinceStartup;
             while (_hitTimes.Count > 0 && now - _hitTimes.Peek() > 1f)

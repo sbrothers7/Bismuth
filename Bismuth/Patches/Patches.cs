@@ -273,7 +273,7 @@ namespace Bismuth
                     position = new Vector3(100000f, 100000f, 100000f);
                     return true;
                 }
-                if (MainClass.Settings.ActiveHidePerfectJudgements && __instance.hitMargin == HitMargin.Perfect)
+                if (MainClass.Settings.ShouldHideJudgement(__instance.hitMargin))
                     return false;
                 return true;
             }

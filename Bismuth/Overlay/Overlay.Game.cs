@@ -93,7 +93,8 @@ namespace Bismuth
 
         public void OnLevelStart(bool isRestart)
         {
-            string key = GetLevelKey();
+            var id = LevelKey.Resolve();
+            string key = id.Key;
             /* Full attempts only count starts from 0% (no checkpoint loaded). Regular
                attempts count every attempt, including checkpoint restarts */
             bool atCp = false;
@@ -129,6 +130,9 @@ namespace Bismuth
                 else
                 {
                     _currentLevelKey = key;
+                    // Carry counts over from the old path-based key the first time we
+                    // see this custom level under its new content hash.
+                    AttemptsStore.Migrate(id.LegacyKey, _currentLevelKey);
                     _attempts = AttemptsStore.Get(_currentLevelKey);
                     _fullAttempts = AttemptsStore.GetFull(_currentLevelKey);
                 }

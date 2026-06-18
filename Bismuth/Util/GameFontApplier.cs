@@ -260,6 +260,9 @@ namespace Bismuth
         private static bool ShouldBold(Component c, string text, bool styleBold, string origFontName)
         {
             if (ForceRegular(c)) return false;
+            // Editor-scene text (tile-direction overlay, form panels) stays vanilla weight
+            // — no scene/title rule should bold it.
+            if (IsEditorUi(c)) return false;
             /* The settings submenu (child of PauseMenu) keeps its designed weight
                EVERYWHERE. Checked first so no scene rule (e.g. LevelSelectBold's
                whole-scene bold when settings is opened from the main menu) overrides
